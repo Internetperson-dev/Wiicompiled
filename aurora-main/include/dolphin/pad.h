@@ -204,11 +204,16 @@ void PADSerializeMappings();
 BOOL PADSetKeyButtonBinding(u32 port, PADKeyButtonBinding binding);
 BOOL PADSetKeyButtonBindings(u32 port, PADKeyButtonBinding bindings[PAD_BUTTON_COUNT]);
 PADKeyButtonBinding* PADGetKeyButtonBindings(u32 port, u32* buttonCount);
+void PADSetAltKeyButtonBinding(u32 port, PADKeyButtonBinding binding);
+PADKeyButtonBinding* PADGetAltKeyButtonBindings(u32 port, u32* buttonCount);
 BOOL PADSetKeyAxisBinding(u32 port, PADKeyAxisBinding binding);
 BOOL PADSetKeyAxisBindings(u32 port, PADKeyAxisBinding bindings[PAD_BUTTON_COUNT]);
 PADKeyAxisBinding* PADGetKeyAxisBindings(u32 port, u32* axisCount);
+void PADSetAltKeyAxisBinding(u32 port, PADKeyAxisBinding binding);
+PADKeyAxisBinding* PADGetAltKeyAxisBindings(u32 port, u32* axisCount);
 void PADClearKeyBindings(u32 port);
 void PADSetKeyboardActive(u32 port, BOOL active);
+BOOL PADIsKeyboardActive(u32 port);
 
 PADDeadZones* PADGetDeadZones(u32 port);
 const char* PADGetButtonName(PADButton);
