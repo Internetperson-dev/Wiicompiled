@@ -251,9 +251,14 @@ dotnet "$TRANSLATOR_DLL" generate-data-init --project "$PROJECT_MANIFEST"
 
 if [ "$RETRO" = "1" ]; then
     mkdir -p build/base
-    if [ ! -f "build/base/mkwii_base_manifest.json" ] || [ "$NEED_BASE_TRANSLATE" = "1" ]; then
-        dotnet "$TRANSLATOR_DLL" emit-base-manifest --project "$PROJECT_MANIFEST"
-    fi
+    # Must pass --translation-output-metadata: without it the base manifest is
+    # written with zero function ranges, and translate-mod then builds Retro
+    # Rewind's dispatch/page tables against an empty base - the pause menu ends
+    # up resolving a page index to a garbage pointer and crashes on Activate.
+    # Regenerated every run (cheap) so a stale/empty manifest can't linger.
+    dotnet "$TRANSLATOR_DLL" emit-base-manifest --project "$PROJECT_MANIFEST" \
+        --translation-output-metadata generated/base_translation_output.json \
+        --region P
     echo "==> translating Retro Rewind Code.pul"
     retro_mod_args=(translate-mod --project "$PROJECT_MANIFEST" --profile retro-rewind
         --base-manifest build/base/mkwii_base_manifest.json
