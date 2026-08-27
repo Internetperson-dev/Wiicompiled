@@ -42,6 +42,35 @@ have_extracted_data() {
     [ -d "extracted/DATA/sys" ] && [ -d "extracted/DATA/files" ]
 }
 
+NODTOOL_VERSION="${NODTOOL_VERSION:-v2.0.0-alpha.10}"
+NODTOOL_DIR="${NODTOOL_DIR:-$(pwd)/.toolchain/nodtool}"
+
+# Resolve `nodtool` (encounter/nod, MIT/Apache-2.0) for Wii disc extraction.
+# Prefers $NODTOOL or one on PATH, else downloads the pinned prebuilt into
+# .toolchain/ once. Sets $NODTOOL on success; non-zero if it can't be had.
+ensure_nodtool() {
+    if [ -n "${NODTOOL:-}" ] && [ -x "${NODTOOL:-}" ]; then return 0; fi
+    if command -v nodtool >/dev/null 2>&1; then NODTOOL="$(command -v nodtool)"; return 0; fi
+    local asset
+    case "$(uname -m)" in
+        x86_64|amd64)  asset="nodtool-linux-x86_64" ;;
+        aarch64|arm64) asset="nodtool-linux-aarch64" ;;
+        i686|i386|x86) asset="nodtool-linux-i686" ;;
+        *) echo "error: no prebuilt nodtool for $(uname -m); install nodtool and set NODTOOL" >&2; return 1 ;;
+    esac
+    NODTOOL="$NODTOOL_DIR/$asset"
+    if [ ! -x "$NODTOOL" ]; then
+        echo "==> fetching nodtool $NODTOOL_VERSION into $NODTOOL_DIR (first disc extract only)" >&2
+        mkdir -p "$NODTOOL_DIR"
+        if ! curl -fL -o "$NODTOOL.tmp" \
+            "https://github.com/encounter/nod/releases/download/$NODTOOL_VERSION/$asset"; then
+            rm -f "$NODTOOL.tmp"; echo "error: could not download nodtool" >&2; return 1
+        fi
+        chmod +x "$NODTOOL.tmp"
+        mv -f "$NODTOOL.tmp" "$NODTOOL"
+    fi
+}
+
 # Auto-extract from a local disc image (ISO/GCM/GCZ/CISO/WBFS/WIA/RVZ) if
 # Assets/ isn't populated, or --package needs extracted/DATA/ too. Set
 # GAME_IMAGE to pick a specific image when more than one is found.
@@ -59,12 +88,12 @@ if ! have_assets || { [ "$PACKAGE" = "1" ] && ! have_extracted_data; }; then
         fi
     fi
 
-    if [ -n "${GAME_IMAGE:-}" ] && command -v wit >/dev/null 2>&1; then
+    if [ -n "${GAME_IMAGE:-}" ] && ensure_nodtool; then
         if ! verify_sha256 "extracted/DATA/sys/main.dol" "$EXPECTED_DOL_SHA256" ||
            ! verify_sha256 "extracted/DATA/files/rel/StaticR.rel" "$EXPECTED_REL_SHA256"; then
             echo "==> extracting $GAME_IMAGE (this only needs to happen once)"
             rm -rf extracted
-            wit EXTRACT "$GAME_IMAGE" -D extracted
+            "$NODTOOL" extract "$GAME_IMAGE" extracted/DATA -q
         fi
         if verify_sha256 "extracted/DATA/sys/main.dol" "$EXPECTED_DOL_SHA256" &&
            verify_sha256 "extracted/DATA/files/rel/StaticR.rel" "$EXPECTED_REL_SHA256"; then
@@ -84,9 +113,9 @@ if ! have_assets; then
     verify_sha256 "Assets/StaticR.rel" "$EXPECTED_REL_SHA256"  || echo "  - Assets/StaticR.rel  (expected sha256 $EXPECTED_REL_SHA256)" >&2
     echo "" >&2
     echo "place a clean PAL RMCP01 disc image (ISO/WBFS/RVZ/...) at the repo root and re-run" >&2
-    echo "(needs the 'wit' package - Wiimms ISO Tools), or extract it yourself:" >&2
+    echo "(nodtool is fetched automatically), or extract it yourself:" >&2
     echo "  Dolphin: right-click the game -> Properties -> Filesystem -> Extract Entire Disc" >&2
-    echo "  or CLI:  wit EXTRACT your-game.iso -D ./extracted" >&2
+    echo "  or CLI:  nodtool extract your-game.iso ./extracted/DATA" >&2
     echo "then copy extracted/DATA/sys/main.dol and extracted/DATA/files/rel/StaticR.rel into Assets/" >&2
     echo "verify with: sha256sum Assets/main.dol Assets/StaticR.rel" >&2
     exit 1
@@ -314,13 +343,12 @@ if [ "$PACKAGE" = "1" ]; then
         echo "This is your own disc's filesystem (game files, not this project's - see the README's" >&2
         echo "note on that), extracted once so --package can bundle it into a self-contained copy:" >&2
         echo "  1. place a clean PAL RMCP01 disc image (ISO/WBFS/GCZ/CISO/WIA/RVZ) at the repo root" >&2
-        echo "  2. re-run: ./build.sh --package" >&2
-        echo "     (needs the 'wit' package - Wiimms ISO Tools - to auto-extract it into extracted/)" >&2
+        echo "  2. re-run: ./build.sh --package  (nodtool is fetched automatically to extract it)" >&2
         echo "" >&2
-        echo "or extract it yourself and skip wit entirely:" >&2
+        echo "or extract it yourself:" >&2
         echo "  Dolphin: right-click the game -> Properties -> Filesystem -> Extract Entire Disc" >&2
         echo "           -> point the destination at extracted/DATA" >&2
-        echo "  wit CLI: wit EXTRACT your-game.iso -D ./extracted" >&2
+        echo "  nodtool CLI: nodtool extract your-game.iso ./extracted/DATA" >&2
         echo "then re-run: ./build.sh --package" >&2
         exit 1
     fi
