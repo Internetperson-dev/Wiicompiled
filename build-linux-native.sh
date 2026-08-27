@@ -6,40 +6,36 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 # EXPERIMENTAL native Linux ELF build (Clang/GCC, no llvm-mingw/Wine). Needs
 # MKW_EXPERIMENTAL_LINUX_NATIVE in runtime/CMakeLists.txt, turned on below.
 
-# --package (or PACKAGE=1) zips a movable copy to dist/. Not self-contained -
-# system shared libs (SDL3, Vulkan loader, abseil, ...) aren't bundled, see
-# `ldd`. --appimage is for real self-containment.
+# --package zips a movable copy to dist/. Not self-contained - system shared
+# libs (SDL3, Vulkan loader, abseil, ...) aren't bundled, see `ldd`.
+# --appimage is for real self-containment.
 PACKAGE="${PACKAGE:-0}"
 
-# --appimage (or APPIMAGE=1) builds a self-contained .AppImage to dist/ via
-# linuxdeploy, fetched into .toolchain/ on first use.
+# --appimage builds a self-contained .AppImage to dist/ via linuxdeploy,
+# fetched into .toolchain/ on first use.
 APPIMAGE="${APPIMAGE:-0}"
 
-# --retro (or RETRO=1) also builds Retro Rewind; see build.sh for RETRO_ROOT.
-# Shares generated/build_shards/ and build/mods/retro_rewind_full_cpp/ with
-# build.sh (ELF vs COFF assembly) - re-run whichever script you trust last.
+# --retro also builds Retro Rewind; see build.sh for RETRO_ROOT. Shares
+# generated/build_shards/ and build/mods/retro_rewind_full_cpp/ with build.sh
+# (ELF vs COFF assembly) - re-run whichever script you trust last.
 RETRO="${RETRO:-0}"
 RETRO_SKIP_WFC="${RETRO_SKIP_WFC:-0}"
 
-# --install (or INSTALL=1) copies each built product into its own tidy folder
-# under $INSTALL_DIR (default ~/.local/share/WiiCompiled/Install): Install/Base/
-# and, with --retro, Install/RetroRewind/. Each is self-contained (own
-# wii_bootstrap/, dsp_coef.bin, initial_pipeline_cache.db, UserData/Config.toml).
-# The extracted disc data and the RetroRewind6 pack are copied once into
-# $INSTALL_DIR/DATA and $INSTALL_DIR/RetroRewind6, and the installed configs
-# point at those - so nothing outside $INSTALL_DIR is needed at runtime.
-# --install-dir=PATH overrides the location.
+# --install copies each built product into its own self-contained folder
+# under $INSTALL_DIR (default ~/.local/share/WiiCompiled/Install): Base/ and,
+# with --retro, RetroRewind/. Disc data and the RetroRewind6 pack are copied
+# once into $INSTALL_DIR/{DATA,RetroRewind6}, and installed configs point at
+# those, so nothing outside $INSTALL_DIR is needed at runtime. It also writes
+# menu launchers to ~/.local/share/applications/ plus the icon; pass
+# --no-desktop to skip just that. --install-dir=PATH overrides the location.
+# (--desktop is a deprecated alias for --install.)
 INSTALL="${INSTALL:-0}"
+NO_DESKTOP="${NO_DESKTOP:-0}"
 DESKTOP="${DESKTOP:-0}"
 INSTALL_DIR="${INSTALL_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/WiiCompiled/Install}"
 
-# --desktop (or DESKTOP=1) implies --install and additionally writes menu
-# launchers to ~/.local/share/applications/ (wiicompiled.desktop and, with
-# --retro, wiicompiled-retrorewind.desktop) plus the icon.
-
-# -i / --interactive asks the questions below at a prompt instead of taking
-# flags. Also the default when the script is started with no arguments at all
-# on an interactive terminal; passing any flag (or piping input) skips it.
+# -i / --interactive prompts for the options below instead of taking flags.
+# Also the default with no arguments on an interactive terminal.
 INTERACTIVE="${INTERACTIVE:-0}"
 for arg in "$@"; do
     case "$arg" in
@@ -47,12 +43,14 @@ for arg in "$@"; do
         --retro-skip-wfc) RETRO=1; RETRO_SKIP_WFC=1 ;;
         --package) PACKAGE=1 ;;
         --appimage) APPIMAGE=1 ;;
-        --install) INSTALL=1 ;;
+        --install|--desktop) INSTALL=1 ;;
         --install-dir=*) INSTALL=1; INSTALL_DIR="${arg#*=}" ;;
-        --desktop) INSTALL=1; DESKTOP=1 ;;
+        --no-desktop) NO_DESKTOP=1 ;;
         -i|--interactive) INTERACTIVE=1 ;;
     esac
 done
+# --install writes the menu entry by default; --no-desktop opts out.
+if [ "$INSTALL" = 1 ] && [ "$NO_DESKTOP" != 1 ]; then DESKTOP=1; fi
 
 # $1 question, $2 default (y|n). Returns 0 for yes.
 prompt_yes_no() {
@@ -65,7 +63,7 @@ prompt_yes_no() {
 
 run_interactive() {
     echo "WiiCompiled native Linux build - interactive setup" >&2
-    echo "(pass flags to skip: --retro --install --desktop --package --appimage)" >&2
+    echo "(pass flags to skip: --retro --install --package --appimage)" >&2
     echo >&2
 
     if prompt_yes_no "Build Retro Rewind as well?" "$([ "$RETRO" = 1 ] && echo y || echo n)"; then
@@ -77,34 +75,32 @@ run_interactive() {
 
     local default_choice=1
     [ "$INSTALL" = 1 ] && default_choice=2
-    [ "$DESKTOP" = 1 ] && default_choice=3
-    [ "$PACKAGE" = 1 ] && default_choice=4
-    [ "$APPIMAGE" = 1 ] && default_choice=5
+    [ "$PACKAGE" = 1 ] && default_choice=3
+    [ "$APPIMAGE" = 1 ] && default_choice=4
     {
         echo "Output:"
         echo "  1) dev      - build in ./$BUILD_DIR and run it there"
-        echo "  2) install  - tidy folders under $INSTALL_DIR"
-        echo "  3) desktop  - install + a menu entry / icon"
-        echo "  4) package  - a movable .zip in ./dist (disc data bundled)"
-        echo "  5) appimage - a self-contained .AppImage in ./dist"
-        printf 'Choose [1-5] (%s): ' "$default_choice"
+        echo "  2) install  - tidy folders under $INSTALL_DIR, plus a menu entry / icon"
+        echo "  3) package  - a movable .zip in ./dist (disc data bundled)"
+        echo "  4) appimage - a self-contained .AppImage in ./dist"
+        printf 'Choose [1-4] (%s): ' "$default_choice"
     } >&2
     local choice
     read -r choice || choice=""
     PACKAGE=0; APPIMAGE=0; INSTALL=0; DESKTOP=0
     case "${choice:-$default_choice}" in
         1) : ;;
-        2) INSTALL=1 ;;
-        3) INSTALL=1; DESKTOP=1 ;;
-        4) PACKAGE=1 ;;
-        5) APPIMAGE=1 ;;
+        2) INSTALL=1; if [ "$NO_DESKTOP" != 1 ]; then DESKTOP=1; fi ;;
+        3) PACKAGE=1 ;;
+        4) APPIMAGE=1 ;;
         *) echo "unrecognized choice '$choice' - using dev" >&2 ;;
     esac
     echo >&2
 
     local summary="dev build in $BUILD_DIR"
     [ "$INSTALL" = 1 ] && summary="install to $INSTALL_DIR"
-    [ "$DESKTOP" = 1 ] && summary="$summary (with menu entry)"
+    [ "$INSTALL" = 1 ] && [ "$DESKTOP" = 1 ] && summary="$summary (with menu entry)"
+    [ "$INSTALL" = 1 ] && [ "$DESKTOP" != 1 ] && summary="$summary (no menu entry)"
     [ "$PACKAGE" = 1 ] && summary="package ./dist/WiiCompiled-linux.zip"
     [ "$APPIMAGE" = 1 ] && summary="AppImage(s) in ./dist"
     [ "$RETRO" = 1 ] && summary="$summary + Retro Rewind"
@@ -142,9 +138,8 @@ have_extracted_data() {
 NODTOOL_VERSION="${NODTOOL_VERSION:-v2.0.0-alpha.10}"
 NODTOOL_DIR="${NODTOOL_DIR:-$(pwd)/.toolchain/nodtool}"
 
-# Resolve `nodtool` (encounter/nod, MIT/Apache-2.0) for Wii disc extraction.
-# Prefers $NODTOOL or one on PATH, else downloads the pinned prebuilt into
-# .toolchain/ once. Sets $NODTOOL on success; non-zero if it can't be had.
+# Resolve `nodtool` (encounter/nod) for Wii disc extraction: prefer $NODTOOL
+# or PATH, else download the pinned prebuilt into .toolchain/ once.
 ensure_nodtool() {
     if [ -n "${NODTOOL:-}" ] && [ -x "${NODTOOL:-}" ]; then return 0; fi
     if command -v nodtool >/dev/null 2>&1; then NODTOOL="$(command -v nodtool)"; return 0; fi
@@ -247,11 +242,9 @@ fi
 PUL_SHA=""
 if [ "$RETRO" = "1" ]; then
     if [ ! -f "$RETRO_ROOT/Binaries/Code.pul" ]; then
-        # The FULL pack (<version>-full2.zip on the CDN), not
-        # update.rwfc.net/.../RetroRewind.zip - that one is the in-game
-        # updater's incremental bundle and omits menu/UI archives an existing
-        # install already has, so Retro Rewind's pause menu ends up missing
-        # pages (page 0x19 -> null -> Page::Activate(null) crash). Set
+        # Needs the FULL pack (<version>-full2.zip), not the incremental
+        # RetroRewind.zip updater - that omits archives an existing install
+        # already has, leaving pause-menu pages missing. Set
         # RETRO_FULL_ZIP_URL to override.
         if [ -z "${RETRO_FULL_ZIP_URL:-}" ]; then
             rr_version="$(curl -fsSL "https://update.rwfc.net/RetroRewind/RetroRewindVersion.txt" \
@@ -271,9 +264,8 @@ if [ "$RETRO" = "1" ]; then
             rm -rf "$tmp_extract"
             exit 1
         fi
-        # This branch only runs when RETRO_ROOT has no Code.pul, i.e. it is
-        # missing or a stale partial tree - replace it wholesale so leftovers
-        # from an old incremental RetroRewind.zip can't shadow the full pack.
+        # Replace RETRO_ROOT wholesale so leftovers from an old incremental
+        # install can't shadow the full pack.
         rm -rf "$RETRO_ROOT"
         mkdir -p "$(dirname "$RETRO_ROOT")"
         cp -r "$tmp_extract/RetroRewind6" "$RETRO_ROOT"
@@ -319,11 +311,9 @@ MKW_ASM_OBJECT_FORMAT=elf dotnet "$TRANSLATOR_DLL" generate-data-init --project 
 
 if [ "$RETRO" = "1" ]; then
     mkdir -p build/base
-    # Must pass --translation-output-metadata: without it the base manifest is
-    # written with zero function ranges, and translate-mod then builds Retro
-    # Rewind's dispatch/page tables against an empty base - the pause menu ends
-    # up resolving a page index to a garbage pointer and crashes on Activate.
-    # Regenerated every run (cheap) so a stale/empty manifest can't linger.
+    # --translation-output-metadata is required, or the base manifest gets
+    # zero function ranges and translate-mod builds Retro Rewind's dispatch
+    # tables against an empty base. Regenerated every run (cheap).
     dotnet "$TRANSLATOR_DLL" emit-base-manifest --project "$PROJECT_MANIFEST" \
         --translation-output-metadata generated/base_translation_output.json \
         --region P
@@ -584,9 +574,8 @@ if [ "$PACKAGE" = "1" ] || [ "$APPIMAGE" = "1" ]; then
         export APPIMAGE_EXTRACT_AND_RUN=1
         mkdir -p dist
 
-        # Each AppImage gets its own fresh AppDir - sharing one between
-        # WiiCompiled and RetroRewind made linuxdeploy's appimage plugin pick
-        # the wrong output name and clobber the first build.
+        # Each AppImage gets its own fresh AppDir - sharing one made
+        # linuxdeploy's appimage plugin clobber the first build's output.
         #
         # $1=output name, $2=binary to run, $3=desktop Name=.
         build_appimage() {
@@ -595,15 +584,12 @@ if [ "$PACKAGE" = "1" ] || [ "$APPIMAGE" = "1" ]; then
             rm -rf "$appdir"
             mkdir -p "$appdir/usr/bin"
             cp -r "$STAGE_DIR/." "$appdir/usr/bin/"
-            # Skip portable.txt: it'd put UserData/ (Cache/, saves, NAND)
-            # inside the read-only squashfs mount. AppRun below redirects
-            # writes to $HOME instead.
+            # Skip portable.txt: it'd put UserData/ inside the read-only
+            # squashfs mount. AppRun below redirects writes to $HOME instead.
             rm -f "$appdir/usr/bin/portable.txt"
 
-            # $HERE is only stable for this run (fresh mount dir each
-            # launch), so [paths] gets rewritten every time instead of baked
-            # in at build time. ApplicationDataDirectory() is $DATA_HOME
-            # itself here - no UserData/ nesting.
+            # $HERE changes every launch (fresh mount dir), so [paths] is
+            # rewritten each run instead of baked in at build time.
             cat > "$appdir/AppRun" <<EOF_APPRUN
 #!/bin/sh
 set -eu
@@ -628,12 +614,10 @@ EOF_APPRUN
 } >> "\$CONFIG"
 EOF_APPRUN
             if [ "$RETRO" = "1" ]; then
-                # Retro Rewind saves next to retro_rewind_root's *parent*,
-                # not inside RetroRewind6/ itself. A plain symlink for
-                # RetroRewind6 gets resolved back to the read-only mount by
-                # weakly_canonical() (riivolution.cpp), so RetroRewind6/
-                # itself must be a real directory - one level of symlinks
-                # into the mount is enough.
+                # Retro Rewind saves next to retro_rewind_root's parent, so
+                # RetroRewind6/ itself must be a real directory (not a
+                # symlink, which weakly_canonical() resolves back to the
+                # read-only mount) - symlink its contents instead.
                 cat >> "$appdir/AppRun" <<'EOF_APPRUN'
 mkdir -p "$DATA_HOME/sdroot/RetroRewind6"
 for entry in "$HERE"/usr/bin/RetroRewind6/* "$HERE"/usr/bin/RetroRewind6/.[!.]*; do
