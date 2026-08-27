@@ -551,6 +551,13 @@ void VI_HLE_PresentFrame(bool presentedXfb, bool paceToRetrace) {
         const uint32_t retracesElapsed = retraceCount - s_lastPacedRetraceCount;
         paceThisFrame = retracesElapsed == 0;
         s_lastPacedRetraceCount = retraceCount;
+#ifdef MKW_UNCAPPED_FPS
+        // Dev build: never hold the producer to the VI retrace boundary. The
+        // schedule anchor below is still published so Aurora's diagnostics stay
+        // sane; it just no longer waits on it (see lib/aurora.cpp).
+        paceThisFrame = false;
+        (void)paceDeadline;
+#endif
         // aurora_report_producer_paced needs a different signal than the pace-wait above: the guest
         // self-paces via VIWaitForRetrace, so one retrace per produced frame is the healthy locked-60
         // cadence, and zero only happens when production outruns VI. "Kept up" means <=1 retrace

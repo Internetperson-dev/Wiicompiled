@@ -82,6 +82,10 @@ int g_frameInterpolationMode = [] {
         return 1;
     case 180:
         return 2;
+#ifdef MKW_UNCAPPED_FPS
+    case 240:
+        return 3;
+#endif
     default:
         return 0;
     }
@@ -203,7 +207,11 @@ constexpr std::array<ResolutionItem, 8> kResolutions = {{
     {"3x", 3.0f}, {"4x", 4.0f}, {"6x", 6.0f}, {"8x", 8.0f},
 }};
 
+#ifdef MKW_UNCAPPED_FPS
+constexpr std::array<uint32_t, 4> kFrameInterpolationTargetFps{0, 120, 180, 240};
+#else
 constexpr std::array<uint32_t, 3> kFrameInterpolationTargetFps{0, 120, 180};
+#endif
 
 bool IsHighResolutionScale(float scale) {
     return std::fabs(scale - 6.0f) < 0.001f || std::fabs(scale - 8.0f) < 0.001f;
@@ -632,9 +640,15 @@ void DrawGraphicsSettings() {
             "Requests the closest native-resolution display mode to the output frame "
             "rate (60 Hz, or the frame interpolation target).");
     }
+#ifdef MKW_UNCAPPED_FPS
+    constexpr std::array<const char*, 4> kFrameInterpolationModes{
+        "Off", "120 FPS", "180 FPS", "240 FPS (uncapped)",
+    };
+#else
     constexpr std::array<const char*, 3> kFrameInterpolationModes{
         "Off", "120 FPS", "180 FPS",
     };
+#endif
     const char* currentFrameInterpolationMode =
         kFrameInterpolationModes[static_cast<size_t>(g_frameInterpolationMode)];
     bool frameInterpolationModeChanged = false;
