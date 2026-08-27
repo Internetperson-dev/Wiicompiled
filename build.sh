@@ -9,22 +9,13 @@ CPPWINRT_DIR="${CPPWINRT_DIR:-$(pwd)/.toolchain/cppwinrt}"
 PROJECT_MANIFEST="projects/mkwii/recomp.yml"
 TRANSLATOR_DLL="translator/src/Translator.Cli/bin/Release/net8.0/Translator.Cli.dll"
 
-# Pass --retro (or RETRO=1) to additionally build the Retro Rewind product.
-# RETRO_ROOT must contain:
-#   Binaries/Code.pul   the Kamek-compiled patch binary (not part of a normal
-#                       consumer SD-card install; built/obtained separately)
-#   xml/RetroRewind6.xml    the Riivolution descriptor, path fixed relative
-#                           to RETRO_ROOT
-#   the disc file overlay (Race/, Language/, ...), either directly under
-#   RETRO_ROOT or nested under RETRO_ROOT/files/ - both are checked
-# Defaults to PulsarPacks/completed/RetroRewind/RetroRewind6 under the repo;
-# point RETRO_ROOT at an existing install elsewhere instead of moving it.
+# --retro (or RETRO=1) also builds Retro Rewind. RETRO_ROOT needs
+# Binaries/Code.pul, xml/RetroRewind6.xml, and the disc overlay (Race/,
+# Language/, ...) directly under it or under files/. Defaults to
+# PulsarPacks/completed/RetroRewind/RetroRewind6.
 RETRO="${RETRO:-0}"
 RETRO_SKIP_WFC="${RETRO_SKIP_WFC:-0}"
-# Pass --package (or PACKAGE=1) to also assemble a self-contained, movable
-# copy under dist/ (exe+DLLs+DATA, and RetroRewind6 too when --retro) and
-# zip it, useful for end users who want to understand what files to keep
-# around for a portable install.
+# --package (or PACKAGE=1) also zips a self-contained, movable copy to dist/.
 PACKAGE="${PACKAGE:-0}"
 for arg in "$@"; do
     case "$arg" in
@@ -47,12 +38,14 @@ have_assets() {
     verify_sha256 "Assets/main.dol" "$EXPECTED_DOL_SHA256" && verify_sha256 "Assets/StaticR.rel" "$EXPECTED_REL_SHA256"
 }
 
-# Auto-extract main.dol/StaticR.rel from a local disc image if Assets/ doesn't
-# already hold a verified clean PAL RMCP01 copy. Accepts whatever `wit` does
-# (ISO, GCM, GCZ, CISO, WBFS, WIA, RVZ) sitting at the repo root, set
-# GAME_IMAGE to pick one explicitly (path or name) when more than one exists
-# or it lives elsewhere
-if ! have_assets; then
+have_extracted_data() {
+    [ -d "extracted/DATA/sys" ] && [ -d "extracted/DATA/files" ]
+}
+
+# Auto-extract from a local disc image (ISO/GCM/GCZ/CISO/WBFS/WIA/RVZ) if
+# Assets/ isn't populated, or --package needs extracted/DATA/ too. Set
+# GAME_IMAGE to pick a specific image when more than one is found.
+if ! have_assets || { [ "$PACKAGE" = "1" ] && ! have_extracted_data; }; then
     if [ -z "${GAME_IMAGE:-}" ]; then
         shopt -s nullglob nocaseglob
         candidates=(*.wbfs *.iso *.gcm *.gcz *.ciso *.wia *.rvz)
@@ -121,10 +114,8 @@ if [ ! -x "$TOOLCHAIN_DIR/bin/x86_64-w64-mingw32-clang++" ]; then
     rm -rf "$tmp_extract"
 fi
 
-# runtime/src/music_attenuation.cpp uses C++/WinRT (winrt/Windows.Media.Control.h)
-# for the music-ducking feature. llvm-mingw doesn't ship the Windows SDK's
-# generated WinRT projection headers, so fetch the community mingw-w64-cppwinrt
-# project's prebuilt header set (github.com/alvinhochun/mingw-w64-cppwinrt)
+# music_attenuation.cpp needs C++/WinRT headers llvm-mingw doesn't ship;
+# fetch the community mingw-w64-cppwinrt project's prebuilt set.
 if [ ! -f "$CPPWINRT_DIR/winrt/base.h" ]; then
     echo "==> fetching mingw-w64-cppwinrt headers (not found at $CPPWINRT_DIR)"
     # take the newest entry from the full release list
@@ -262,15 +253,10 @@ cmake -S runtime -B "$BUILD_DIR" -G Ninja \
 
 cmake --build "$BUILD_DIR"
 
-# Portable config, pre-filled with the paths this build already knows about.
-# Only enabled (via portable.txt) for --package, without it, this
-# just stages a Config.toml for --package to read below, and the exe here in
-# $BUILD_DIR keeps using its normal (%LOCALAPPDATA%\WiiCompiled or Wine-prefix
-# equivalent) config location instead of $BUILD_DIR/UserData
+# portable.txt makes $BUILD_DIR/UserData the config location instead of
+# %LOCALAPPDATA%\WiiCompiled (or the Wine-prefix equivalent).
 mkdir -p "$BUILD_DIR/UserData"
-if [ "$PACKAGE" = "1" ]; then
-    touch "$BUILD_DIR/portable.txt"
-fi
+touch "$BUILD_DIR/portable.txt"
 CONFIG_FILE="$BUILD_DIR/UserData/Config.toml"
 if [ ! -f "$CONFIG_FILE" ]; then
     dvd_root_line='# dvd_root = "D:/MarioKartWii/DATA"'
@@ -323,7 +309,19 @@ fi
 
 if [ "$PACKAGE" = "1" ]; then
     if [ ! -d "extracted/DATA/sys" ] || [ ! -d "extracted/DATA/files" ]; then
-        echo "error: --package needs extracted/DATA (place a disc image at the repo root and re-run)" >&2
+        echo "error: --package needs extracted/DATA, which isn't there yet." >&2
+        echo "" >&2
+        echo "This is your own disc's filesystem (game files, not this project's - see the README's" >&2
+        echo "note on that), extracted once so --package can bundle it into a self-contained copy:" >&2
+        echo "  1. place a clean PAL RMCP01 disc image (ISO/WBFS/GCZ/CISO/WIA/RVZ) at the repo root" >&2
+        echo "  2. re-run: ./build.sh --package" >&2
+        echo "     (needs the 'wit' package - Wiimms ISO Tools - to auto-extract it into extracted/)" >&2
+        echo "" >&2
+        echo "or extract it yourself and skip wit entirely:" >&2
+        echo "  Dolphin: right-click the game -> Properties -> Filesystem -> Extract Entire Disc" >&2
+        echo "           -> point the destination at extracted/DATA" >&2
+        echo "  wit CLI: wit EXTRACT your-game.iso -D ./extracted" >&2
+        echo "then re-run: ./build.sh --package" >&2
         exit 1
     fi
     PACKAGE_DIR="dist/WiiCompiled"
@@ -357,10 +355,15 @@ if [ "$RETRO" = "1" ]; then
     echo "Retro Rewind build at $BUILD_DIR/RetroRewind.exe"
 fi
 
-if [ "$PACKAGE" != "1" ]; then
+if [ "$PACKAGE" = "1" ]; then
     echo ""
-    echo "This exe will NOT work if moved on its own - it needs $BUILD_DIR/ (DLLs, wii_bootstrap/,"
-    echo "dsp_coef.bin, initial_pipeline_cache.db, UserData/Config.toml) and the game data/mod"
-    echo "folders Config.toml points at, all kept alongside it."
+    echo "To play: unzip dist/WiiCompiled.zip anywhere and run WiiCompiled.exe inside it."
+    echo "Your extracted game data is already bundled (UserData/Config.toml's dvd_root points at"
+    echo "the DATA/ folder next to the exe), so it's ready to go as-is - no extra setup needed."
+else
+    echo ""
+    echo "To play: run $BUILD_DIR/WiiCompiled.exe as-is. If you move it, take the whole $BUILD_DIR/"
+    echo "folder with it (DLLs, wii_bootstrap/, dsp_coef.bin, initial_pipeline_cache.db,"
+    echo "UserData/Config.toml) plus whatever game data/mod folders Config.toml points at."
     echo "Re-run with --package for a single self-contained, movable copy instead."
 fi
