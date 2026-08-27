@@ -47,8 +47,37 @@ have_assets() {
     verify_sha256 "Assets/main.dol" "$EXPECTED_DOL_SHA256" && verify_sha256 "Assets/StaticR.rel" "$EXPECTED_REL_SHA256"
 }
 
+NODTOOL_VERSION="${NODTOOL_VERSION:-v2.0.0-alpha.10}"
+NODTOOL_DIR="${NODTOOL_DIR:-$(pwd)/.toolchain/nodtool}"
+
+# Resolve `nodtool` (encounter/nod, MIT/Apache-2.0) for Wii disc extraction.
+# Prefers $NODTOOL or one on PATH, else downloads the pinned prebuilt into
+# .toolchain/ once. Sets $NODTOOL on success; non-zero if it can't be had.
+ensure_nodtool() {
+    if [ -n "${NODTOOL:-}" ] && [ -x "${NODTOOL:-}" ]; then return 0; fi
+    if command -v nodtool >/dev/null 2>&1; then NODTOOL="$(command -v nodtool)"; return 0; fi
+    local asset
+    case "$(uname -m)" in
+        x86_64|amd64)  asset="nodtool-linux-x86_64" ;;
+        aarch64|arm64) asset="nodtool-linux-aarch64" ;;
+        i686|i386|x86) asset="nodtool-linux-i686" ;;
+        *) echo "error: no prebuilt nodtool for $(uname -m); install nodtool and set NODTOOL" >&2; return 1 ;;
+    esac
+    NODTOOL="$NODTOOL_DIR/$asset"
+    if [ ! -x "$NODTOOL" ]; then
+        echo "==> fetching nodtool $NODTOOL_VERSION into $NODTOOL_DIR (first disc extract only)" >&2
+        mkdir -p "$NODTOOL_DIR"
+        if ! curl -fL -o "$NODTOOL.tmp" \
+            "https://github.com/encounter/nod/releases/download/$NODTOOL_VERSION/$asset"; then
+            rm -f "$NODTOOL.tmp"; echo "error: could not download nodtool" >&2; return 1
+        fi
+        chmod +x "$NODTOOL.tmp"
+        mv -f "$NODTOOL.tmp" "$NODTOOL"
+    fi
+}
+
 # Auto-extract main.dol/StaticR.rel from a local disc image if Assets/ doesn't
-# already hold a verified clean PAL RMCP01 copy. Accepts whatever `wit` does
+# already hold a verified clean PAL RMCP01 copy. Accepts whatever nodtool does
 # (ISO, GCM, GCZ, CISO, WBFS, WIA, RVZ) sitting at the repo root, set
 # GAME_IMAGE to pick one explicitly (path or name) when more than one exists
 # or it lives elsewhere
@@ -66,12 +95,12 @@ if ! have_assets; then
         fi
     fi
 
-    if [ -n "${GAME_IMAGE:-}" ] && command -v wit >/dev/null 2>&1; then
+    if [ -n "${GAME_IMAGE:-}" ] && ensure_nodtool; then
         if ! verify_sha256 "extracted/DATA/sys/main.dol" "$EXPECTED_DOL_SHA256" ||
            ! verify_sha256 "extracted/DATA/files/rel/StaticR.rel" "$EXPECTED_REL_SHA256"; then
             echo "==> extracting $GAME_IMAGE (this only needs to happen once)"
             rm -rf extracted
-            wit EXTRACT "$GAME_IMAGE" -D extracted
+            "$NODTOOL" extract "$GAME_IMAGE" extracted/DATA -q
         fi
         if verify_sha256 "extracted/DATA/sys/main.dol" "$EXPECTED_DOL_SHA256" &&
            verify_sha256 "extracted/DATA/files/rel/StaticR.rel" "$EXPECTED_REL_SHA256"; then
@@ -91,9 +120,9 @@ if ! have_assets; then
     verify_sha256 "Assets/StaticR.rel" "$EXPECTED_REL_SHA256"  || echo "  - Assets/StaticR.rel  (expected sha256 $EXPECTED_REL_SHA256)" >&2
     echo "" >&2
     echo "place a clean PAL RMCP01 disc image (ISO/WBFS/RVZ/...) at the repo root and re-run" >&2
-    echo "(needs the 'wit' package - Wiimms ISO Tools), or extract it yourself:" >&2
+    echo "(nodtool is fetched automatically), or extract it yourself:" >&2
     echo "  Dolphin: right-click the game -> Properties -> Filesystem -> Extract Entire Disc" >&2
-    echo "  or CLI:  wit EXTRACT your-game.iso -D ./extracted" >&2
+    echo "  or CLI:  nodtool extract your-game.iso ./extracted/DATA" >&2
     echo "then copy extracted/DATA/sys/main.dol and extracted/DATA/files/rel/StaticR.rel into Assets/" >&2
     echo "verify with: sha256sum Assets/main.dol Assets/StaticR.rel" >&2
     exit 1
