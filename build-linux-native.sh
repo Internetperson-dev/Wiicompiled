@@ -20,12 +20,30 @@ APPIMAGE="${APPIMAGE:-0}"
 # build.sh (ELF vs COFF assembly) - re-run whichever script you trust last.
 RETRO="${RETRO:-0}"
 RETRO_SKIP_WFC="${RETRO_SKIP_WFC:-0}"
+
+# --install (or INSTALL=1) copies each built product into its own tidy folder
+# under $INSTALL_DIR (default ~/.local/share/WiiCompiled/Install): Install/Base/
+# and, with --retro, Install/RetroRewind/. Each is portable and self-contained
+# (own wii_bootstrap/, dsp_coef.bin, initial_pipeline_cache.db, UserData/
+# Config.toml with absolute dvd_root / retro_rewind_root). The disc data and the
+# RetroRewind6 pack are referenced in place, not copied - use --package for a
+# fully movable bundle. --install-dir=PATH overrides the location.
+INSTALL="${INSTALL:-0}"
+DESKTOP="${DESKTOP:-0}"
+INSTALL_DIR="${INSTALL_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/WiiCompiled/Install}"
+
+# --desktop (or DESKTOP=1) implies --install and additionally writes menu
+# launchers to ~/.local/share/applications/ (wiicompiled.desktop and, with
+# --retro, wiicompiled-retrorewind.desktop) plus the icon.
 for arg in "$@"; do
     case "$arg" in
         --retro) RETRO=1 ;;
         --retro-skip-wfc) RETRO=1; RETRO_SKIP_WFC=1 ;;
         --package) PACKAGE=1 ;;
         --appimage) APPIMAGE=1 ;;
+        --install) INSTALL=1 ;;
+        --install-dir=*) INSTALL=1; INSTALL_DIR="${arg#*=}" ;;
+        --desktop) INSTALL=1; DESKTOP=1 ;;
     esac
 done
 RETRO_ROOT="${RETRO_ROOT:-$(pwd)/PulsarPacks/completed/RetroRewind/RetroRewind6}"
@@ -324,6 +342,86 @@ if [ "$RETRO" = "1" ] && ! grep -q '^retro_rewind_root' "$CONFIG_FILE"; then
     echo "==> set retro_rewind_root in $CONFIG_FILE"
 fi
 
+if [ "$INSTALL" = "1" ]; then
+    echo ""
+    echo "==> installing tidy per-product folders under $INSTALL_DIR"
+
+    dvd_abs=""
+    if [ -d "extracted/DATA/sys" ] && [ -d "extracted/DATA/files" ]; then
+        dvd_abs="$(realpath extracted/DATA)"
+    else
+        echo "    note: extracted/DATA not found - leaving dvd_root commented in the installed config" >&2
+    fi
+    retro_abs="$(realpath "$RETRO_ROOT" 2>/dev/null || true)"
+
+    # $1 product folder, $2 binary name, $3 = 1 when this product is Retro Rewind
+    install_product() {
+        local name="$1" binary="$2" is_retro="$3"
+        local dest="$INSTALL_DIR/$name"
+        rm -rf "$dest"
+        mkdir -p "$dest/UserData"
+        cp -f "$BUILD_DIR/$binary" "$BUILD_DIR/dsp_coef.bin" \
+              "$BUILD_DIR/initial_pipeline_cache.db" "$dest/"
+        cp -r "$BUILD_DIR/wii_bootstrap" "$dest/wii_bootstrap"
+        touch "$dest/portable.txt"
+        # Reuse the [video]/[audio]/... sections from the build's config, then
+        # re-append [paths] with absolute locations so the folder works from
+        # anywhere (the data itself stays in the repo checkout).
+        sed "/^\[paths\]/,\$d" "$CONFIG_FILE" > "$dest/UserData/Config.toml"
+        {
+            echo "[paths]"
+            if [ -n "$dvd_abs" ]; then
+                echo "dvd_root = \"$dvd_abs\""
+            else
+                echo "# dvd_root = \"/path/to/MarioKartWii/DATA\""
+            fi
+            if [ "$is_retro" = "1" ] && [ -n "$retro_abs" ]; then
+                echo "retro_rewind_root = \"$retro_abs\""
+            fi
+            echo "# nand_root = \"/path/to/WiiNand\""
+        } >> "$dest/UserData/Config.toml"
+        echo "    $dest/$binary"
+    }
+
+    install_product Base WiiCompiled 0
+    if [ "$RETRO" = "1" ]; then
+        install_product RetroRewind RetroRewind 1
+    fi
+
+    if [ "$DESKTOP" = "1" ]; then
+        apps_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+        icons_dir="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/256x256/apps"
+        mkdir -p "$apps_dir" "$icons_dir"
+        icon_name=""
+        if [ -f runtime/assets/appimage/wiicompiled.png ]; then
+            cp -f runtime/assets/appimage/wiicompiled.png "$icons_dir/wiicompiled.png"
+            icon_name="wiicompiled"
+        fi
+        # $1 .desktop basename, $2 Name=, $3 executable path
+        write_desktop() {
+            local file="$apps_dir/$1.desktop"
+            {
+                echo "[Desktop Entry]"
+                echo "Type=Application"
+                echo "Name=$2"
+                echo "Comment=Statically recompiled Mario Kart Wii"
+                echo "Exec=\"$3\""
+                [ -n "$icon_name" ] && echo "Icon=$icon_name"
+                echo "Categories=Game;"
+                echo "Terminal=false"
+            } > "$file"
+            echo "    $file"
+        }
+        write_desktop wiicompiled "WiiCompiled" "$INSTALL_DIR/Base/WiiCompiled"
+        if [ "$RETRO" = "1" ]; then
+            write_desktop wiicompiled-retrorewind "WiiCompiled Retro Rewind" \
+                "$INSTALL_DIR/RetroRewind/RetroRewind"
+        fi
+        command -v update-desktop-database >/dev/null 2>&1 && \
+            update-desktop-database "$apps_dir" >/dev/null 2>&1 || true
+    fi
+fi
+
 if [ "$PACKAGE" = "1" ] || [ "$APPIMAGE" = "1" ]; then
     if [ ! -d "extracted/DATA/sys" ] || [ ! -d "extracted/DATA/files" ]; then
         echo "error: --package/--appimage need extracted/DATA, which isn't there yet." >&2
@@ -502,6 +600,19 @@ echo ""
 echo "EXPERIMENTAL native Linux build - not the shipped/supported path (build.sh"
 echo "produces that)."
 
+if [ "$INSTALL" = "1" ]; then
+    echo ""
+    echo "Installed: $INSTALL_DIR/Base/WiiCompiled"
+    if [ "$RETRO" = "1" ]; then
+        echo "       and $INSTALL_DIR/RetroRewind/RetroRewind"
+    fi
+    if [ "$DESKTOP" = "1" ]; then
+        echo "Menu launchers written to ${XDG_DATA_HOME:-$HOME/.local/share}/applications/."
+    fi
+    echo "Each folder is self-contained except for the disc data and RetroRewind6 pack,"
+    echo "which its Config.toml references in this checkout - use --package to bundle those too."
+fi
+
 if [ "$APPIMAGE" = "1" ]; then
     echo ""
     echo "To play: chmod +x dist/WiiCompiled-linux-x86_64.AppImage and run it, anywhere."
@@ -516,10 +627,10 @@ elif [ "$PACKAGE" = "1" ]; then
     echo "the DATA/ folder next to the binary). NOT bundled: the shared libraries it dynamically"
     echo "links (SDL3, the Vulkan loader, abseil, libpng, zlib, ...) - run 'ldd WiiCompiled' to see"
     echo "the full list, and install whichever your target machine is missing."
-else
+elif [ "$INSTALL" != "1" ]; then
     echo ""
     echo "To play: run $BUILD_DIR/WiiCompiled as-is. If you move it, take the whole $BUILD_DIR/"
     echo "folder with it (wii_bootstrap/, dsp_coef.bin, initial_pipeline_cache.db,"
     echo "UserData/Config.toml) plus whatever game data/mod folders Config.toml points at."
-    echo "Re-run with --package for a movable copy instead."
+    echo "Re-run with --package for a movable copy, --install for tidy folders / a menu entry."
 fi
