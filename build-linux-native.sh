@@ -23,11 +23,12 @@ RETRO_SKIP_WFC="${RETRO_SKIP_WFC:-0}"
 
 # --install (or INSTALL=1) copies each built product into its own tidy folder
 # under $INSTALL_DIR (default ~/.local/share/WiiCompiled/Install): Install/Base/
-# and, with --retro, Install/RetroRewind/. Each is portable and self-contained
-# (own wii_bootstrap/, dsp_coef.bin, initial_pipeline_cache.db, UserData/
-# Config.toml with absolute dvd_root / retro_rewind_root). The disc data and the
-# RetroRewind6 pack are referenced in place, not copied - use --package for a
-# fully movable bundle. --install-dir=PATH overrides the location.
+# and, with --retro, Install/RetroRewind/. Each is self-contained (own
+# wii_bootstrap/, dsp_coef.bin, initial_pipeline_cache.db, UserData/Config.toml).
+# The extracted disc data and the RetroRewind6 pack are copied once into
+# $INSTALL_DIR/DATA and $INSTALL_DIR/RetroRewind6, and the installed configs
+# point at those - so nothing outside $INSTALL_DIR is needed at runtime.
+# --install-dir=PATH overrides the location.
 INSTALL="${INSTALL:-0}"
 DESKTOP="${DESKTOP:-0}"
 INSTALL_DIR="${INSTALL_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/WiiCompiled/Install}"
@@ -35,6 +36,11 @@ INSTALL_DIR="${INSTALL_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/WiiCompiled/Ins
 # --desktop (or DESKTOP=1) implies --install and additionally writes menu
 # launchers to ~/.local/share/applications/ (wiicompiled.desktop and, with
 # --retro, wiicompiled-retrorewind.desktop) plus the icon.
+
+# -i / --interactive asks the questions below at a prompt instead of taking
+# flags. Also the default when the script is started with no arguments at all
+# on an interactive terminal; passing any flag (or piping input) skips it.
+INTERACTIVE="${INTERACTIVE:-0}"
 for arg in "$@"; do
     case "$arg" in
         --retro) RETRO=1 ;;
@@ -44,12 +50,77 @@ for arg in "$@"; do
         --install) INSTALL=1 ;;
         --install-dir=*) INSTALL=1; INSTALL_DIR="${arg#*=}" ;;
         --desktop) INSTALL=1; DESKTOP=1 ;;
+        -i|--interactive) INTERACTIVE=1 ;;
     esac
 done
+
+# $1 question, $2 default (y|n). Returns 0 for yes.
+prompt_yes_no() {
+    local q="$1" def="${2:-n}" ans hint
+    case "$def" in [Yy]*) hint="[Y/n]" ;; *) hint="[y/N]" ;; esac
+    printf '%s %s ' "$q" "$hint" >&2
+    read -r ans || ans=""
+    case "${ans:-$def}" in [Yy]*) return 0 ;; *) return 1 ;; esac
+}
+
+run_interactive() {
+    echo "WiiCompiled native Linux build - interactive setup" >&2
+    echo "(pass flags to skip: --retro --install --desktop --package --appimage)" >&2
+    echo >&2
+
+    if prompt_yes_no "Build Retro Rewind as well?" "$([ "$RETRO" = 1 ] && echo y || echo n)"; then
+        RETRO=1
+    else
+        RETRO=0
+    fi
+    echo >&2
+
+    local default_choice=1
+    [ "$INSTALL" = 1 ] && default_choice=2
+    [ "$DESKTOP" = 1 ] && default_choice=3
+    [ "$PACKAGE" = 1 ] && default_choice=4
+    [ "$APPIMAGE" = 1 ] && default_choice=5
+    {
+        echo "Output:"
+        echo "  1) dev      - build in ./$BUILD_DIR and run it there"
+        echo "  2) install  - tidy folders under $INSTALL_DIR"
+        echo "  3) desktop  - install + a menu entry / icon"
+        echo "  4) package  - a movable .zip in ./dist (disc data bundled)"
+        echo "  5) appimage - a self-contained .AppImage in ./dist"
+        printf 'Choose [1-5] (%s): ' "$default_choice"
+    } >&2
+    local choice
+    read -r choice || choice=""
+    PACKAGE=0; APPIMAGE=0; INSTALL=0; DESKTOP=0
+    case "${choice:-$default_choice}" in
+        1) : ;;
+        2) INSTALL=1 ;;
+        3) INSTALL=1; DESKTOP=1 ;;
+        4) PACKAGE=1 ;;
+        5) APPIMAGE=1 ;;
+        *) echo "unrecognized choice '$choice' - using dev" >&2 ;;
+    esac
+    echo >&2
+
+    local summary="dev build in $BUILD_DIR"
+    [ "$INSTALL" = 1 ] && summary="install to $INSTALL_DIR"
+    [ "$DESKTOP" = 1 ] && summary="$summary (with menu entry)"
+    [ "$PACKAGE" = 1 ] && summary="package ./dist/WiiCompiled-linux.zip"
+    [ "$APPIMAGE" = 1 ] && summary="AppImage(s) in ./dist"
+    [ "$RETRO" = 1 ] && summary="$summary + Retro Rewind"
+    echo "==> $summary" >&2
+    prompt_yes_no "Proceed?" y || { echo "aborted." >&2; exit 0; }
+    echo >&2
+}
+
+BUILD_DIR="${BUILD_DIR:-linux-native-build}"
+
+if [ "$INTERACTIVE" = 1 ] || { [ "$#" -eq 0 ] && [ -t 0 ] && [ -t 1 ]; }; then
+    run_interactive
+fi
 RETRO_ROOT="${RETRO_ROOT:-$(pwd)/PulsarPacks/completed/RetroRewind/RetroRewind6}"
 RETRO_OUT="build/mods/retro_rewind_full_cpp"
 
-BUILD_DIR="${BUILD_DIR:-linux-native-build}"
 PROJECT_MANIFEST="projects/mkwii/recomp.yml"
 TRANSLATOR_DLL="translator/src/Translator.Cli/bin/Release/net8.0/Translator.Cli.dll"
 
@@ -346,13 +417,27 @@ if [ "$INSTALL" = "1" ]; then
     echo ""
     echo "==> installing tidy per-product folders under $INSTALL_DIR"
 
+    # Copy the shared game data once, into $INSTALL_DIR, so the install needs
+    # nothing from the repo checkout at runtime.
     dvd_abs=""
     if [ -d "extracted/DATA/sys" ] && [ -d "extracted/DATA/files" ]; then
-        dvd_abs="$(realpath extracted/DATA)"
+        echo "    copying disc data -> $INSTALL_DIR/DATA"
+        rm -rf "$INSTALL_DIR/DATA"
+        mkdir -p "$INSTALL_DIR"
+        cp -r "extracted/DATA" "$INSTALL_DIR/DATA"
+        dvd_abs="$INSTALL_DIR/DATA"
     else
         echo "    note: extracted/DATA not found - leaving dvd_root commented in the installed config" >&2
     fi
-    retro_abs="$(realpath "$RETRO_ROOT" 2>/dev/null || true)"
+
+    retro_abs=""
+    if [ "$RETRO" = "1" ] && [ -d "$RETRO_ROOT" ]; then
+        echo "    copying RetroRewind6 ($(du -sh "$RETRO_ROOT" 2>/dev/null | cut -f1)) -> $INSTALL_DIR/RetroRewind6"
+        rm -rf "$INSTALL_DIR/RetroRewind6"
+        mkdir -p "$INSTALL_DIR"
+        cp -r "$RETRO_ROOT" "$INSTALL_DIR/RetroRewind6"
+        retro_abs="$INSTALL_DIR/RetroRewind6"
+    fi
 
     # $1 product folder, $2 binary name, $3 = 1 when this product is Retro Rewind
     install_product() {
@@ -365,8 +450,7 @@ if [ "$INSTALL" = "1" ]; then
         cp -r "$BUILD_DIR/wii_bootstrap" "$dest/wii_bootstrap"
         touch "$dest/portable.txt"
         # Reuse the [video]/[audio]/... sections from the build's config, then
-        # re-append [paths] with absolute locations so the folder works from
-        # anywhere (the data itself stays in the repo checkout).
+        # re-append [paths] pointing at the data copied into $INSTALL_DIR above.
         sed "/^\[paths\]/,\$d" "$CONFIG_FILE" > "$dest/UserData/Config.toml"
         {
             echo "[paths]"
@@ -609,8 +693,8 @@ if [ "$INSTALL" = "1" ]; then
     if [ "$DESKTOP" = "1" ]; then
         echo "Menu launchers written to ${XDG_DATA_HOME:-$HOME/.local/share}/applications/."
     fi
-    echo "Each folder is self-contained except for the disc data and RetroRewind6 pack,"
-    echo "which its Config.toml references in this checkout - use --package to bundle those too."
+    echo "The disc data and RetroRewind6 pack were copied to $INSTALL_DIR/{DATA,RetroRewind6};"
+    echo "everything needed at runtime now lives under $INSTALL_DIR."
 fi
 
 if [ "$APPIMAGE" = "1" ]; then
