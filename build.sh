@@ -181,10 +181,23 @@ fi
 PUL_SHA=""
 if [ "$RETRO" = "1" ]; then
     if [ ! -f "$RETRO_ROOT/Binaries/Code.pul" ]; then
-        echo "==> $RETRO_ROOT is missing Binaries/Code.pul; downloading Retro Rewind from update.rwfc.net"
+        # The FULL pack (<version>-full2.zip on the CDN), not
+        # update.rwfc.net/.../RetroRewind.zip - that one is the in-game
+        # updater's incremental bundle and omits menu/UI archives an existing
+        # install already has, so Retro Rewind's pause menu ends up missing
+        # pages (page 0x19 -> null -> Page::Activate(null) crash). Set
+        # RETRO_FULL_ZIP_URL to override.
+        if [ -z "${RETRO_FULL_ZIP_URL:-}" ]; then
+            rr_version="$(curl -fsSL "https://update.rwfc.net/RetroRewind/RetroRewindVersion.txt" \
+                | grep -oE '^[0-9]+(\.[0-9]+)+' | tail -n1)"
+            [ -n "$rr_version" ] || { echo "error: could not determine the latest Retro Rewind version" >&2; exit 1; }
+            RETRO_FULL_ZIP_URL="https://cdn.update.rwfc.net/RetroRewind/zip/${rr_version}-full2.zip"
+        fi
+        echo "==> $RETRO_ROOT is missing Binaries/Code.pul; downloading the full Retro Rewind pack"
+        echo "    $RETRO_FULL_ZIP_URL"
         tmp_archive="$(mktemp --suffix=.zip)"
         tmp_extract="$(mktemp -d)"
-        curl -L -o "$tmp_archive" "https://update.rwfc.net/RetroRewind/zip/RetroRewind.zip"
+        curl -fL -o "$tmp_archive" "$RETRO_FULL_ZIP_URL"
         unzip -q "$tmp_archive" "RetroRewind6/*" -d "$tmp_extract"
         rm -f "$tmp_archive"
         if [ ! -f "$tmp_extract/RetroRewind6/Binaries/Code.pul" ]; then
@@ -192,9 +205,12 @@ if [ "$RETRO" = "1" ]; then
             rm -rf "$tmp_extract"
             exit 1
         fi
-        # Don't delete RETRO_ROOT if it already exists
-        mkdir -p "$RETRO_ROOT"
-        cp -rn "$tmp_extract/RetroRewind6/." "$RETRO_ROOT/"
+        # This branch only runs when RETRO_ROOT has no Code.pul, i.e. it is
+        # missing or a stale partial tree - replace it wholesale so leftovers
+        # from an old incremental RetroRewind.zip can't shadow the full pack.
+        rm -rf "$RETRO_ROOT"
+        mkdir -p "$(dirname "$RETRO_ROOT")"
+        cp -r "$tmp_extract/RetroRewind6" "$RETRO_ROOT"
         rm -rf "$tmp_extract"
     fi
     if [ ! -f "$RETRO_ROOT/Binaries/Code.pul" ]; then
