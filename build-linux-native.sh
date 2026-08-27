@@ -26,12 +26,9 @@ RETRO_SKIP_WFC="${RETRO_SKIP_WFC:-0}"
 # with --retro, RetroRewind/. Disc data and the RetroRewind6 pack are copied
 # once into $INSTALL_DIR/{DATA,RetroRewind6}, and installed configs point at
 # those, so nothing outside $INSTALL_DIR is needed at runtime. It also writes
-# menu launchers to ~/.local/share/applications/ plus the icon; pass
-# --no-desktop to skip just that. --install-dir=PATH overrides the location.
-# (--desktop is a deprecated alias for --install.)
+# menu launchers to ~/.local/share/applications/ plus the icon.
+# --install-dir=PATH overrides the location.
 INSTALL="${INSTALL:-0}"
-NO_DESKTOP="${NO_DESKTOP:-0}"
-DESKTOP="${DESKTOP:-0}"
 INSTALL_DIR="${INSTALL_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/WiiCompiled/Install}"
 
 # -i / --interactive prompts for the options below instead of taking flags.
@@ -43,14 +40,11 @@ for arg in "$@"; do
         --retro-skip-wfc) RETRO=1; RETRO_SKIP_WFC=1 ;;
         --package) PACKAGE=1 ;;
         --appimage) APPIMAGE=1 ;;
-        --install|--desktop) INSTALL=1 ;;
+        --install) INSTALL=1 ;;
         --install-dir=*) INSTALL=1; INSTALL_DIR="${arg#*=}" ;;
-        --no-desktop) NO_DESKTOP=1 ;;
         -i|--interactive) INTERACTIVE=1 ;;
     esac
 done
-# --install writes the menu entry by default; --no-desktop opts out.
-if [ "$INSTALL" = 1 ] && [ "$NO_DESKTOP" != 1 ]; then DESKTOP=1; fi
 
 # $1 question, $2 default (y|n). Returns 0 for yes.
 prompt_yes_no() {
@@ -87,10 +81,10 @@ run_interactive() {
     } >&2
     local choice
     read -r choice || choice=""
-    PACKAGE=0; APPIMAGE=0; INSTALL=0; DESKTOP=0
+    PACKAGE=0; APPIMAGE=0; INSTALL=0
     case "${choice:-$default_choice}" in
         1) : ;;
-        2) INSTALL=1; if [ "$NO_DESKTOP" != 1 ]; then DESKTOP=1; fi ;;
+        2) INSTALL=1 ;;
         3) PACKAGE=1 ;;
         4) APPIMAGE=1 ;;
         *) echo "unrecognized choice '$choice' - using dev" >&2 ;;
@@ -98,9 +92,7 @@ run_interactive() {
     echo >&2
 
     local summary="dev build in $BUILD_DIR"
-    [ "$INSTALL" = 1 ] && summary="install to $INSTALL_DIR"
-    [ "$INSTALL" = 1 ] && [ "$DESKTOP" = 1 ] && summary="$summary (with menu entry)"
-    [ "$INSTALL" = 1 ] && [ "$DESKTOP" != 1 ] && summary="$summary (no menu entry)"
+    [ "$INSTALL" = 1 ] && summary="install to $INSTALL_DIR (with menu entry)"
     [ "$PACKAGE" = 1 ] && summary="package ./dist/WiiCompiled-linux.zip"
     [ "$APPIMAGE" = 1 ] && summary="AppImage(s) in ./dist"
     [ "$RETRO" = 1 ] && summary="$summary + Retro Rewind"
@@ -462,7 +454,8 @@ if [ "$INSTALL" = "1" ]; then
         install_product RetroRewind RetroRewind 1
     fi
 
-    if [ "$DESKTOP" = "1" ]; then
+    # Menu launcher(s) + icon.
+    if [ "$INSTALL" = "1" ]; then
         apps_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
         icons_dir="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/256x256/apps"
         mkdir -p "$apps_dir" "$icons_dir"
@@ -674,9 +667,7 @@ if [ "$INSTALL" = "1" ]; then
     if [ "$RETRO" = "1" ]; then
         echo "       and $INSTALL_DIR/RetroRewind/RetroRewind"
     fi
-    if [ "$DESKTOP" = "1" ]; then
-        echo "Menu launchers written to ${XDG_DATA_HOME:-$HOME/.local/share}/applications/."
-    fi
+    echo "Menu launchers written to ${XDG_DATA_HOME:-$HOME/.local/share}/applications/."
     echo "The disc data and RetroRewind6 pack were copied to $INSTALL_DIR/{DATA,RetroRewind6};"
     echo "everything needed at runtime now lives under $INSTALL_DIR."
 fi
