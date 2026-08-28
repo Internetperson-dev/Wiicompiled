@@ -80,9 +80,11 @@ ensure_nodtool() {
     fi
 }
 
-# Auto-extract from a local disc image (ISO/GCM/GCZ/CISO/WBFS/WIA/RVZ) if
-# Assets/ isn't populated, or --package needs extracted/DATA/ too. Set
-# GAME_IMAGE to pick a specific image when more than one is found.
+# Auto-extract main.dol/StaticR.rel from a local disc image if Assets/ doesn't
+# already hold a verified clean PAL RMCP01 copy, or if --package needs
+# extracted/DATA/ too. Accepts whatever nodtool does (ISO, GCM, GCZ, CISO,
+# WBFS, WIA, RVZ) sitting at the repo root; set GAME_IMAGE to pick one
+# explicitly (path or name) when more than one exists or it lives elsewhere.
 if ! have_assets || { [ "$PACKAGE" = "1" ] && ! have_extracted_data; }; then
     if [ -z "${GAME_IMAGE:-}" ]; then
         shopt -s nullglob nocaseglob
