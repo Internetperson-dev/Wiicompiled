@@ -15,9 +15,10 @@ PACKAGE="${PACKAGE:-0}"
 # fetched into .toolchain/ on first use.
 APPIMAGE="${APPIMAGE:-0}"
 
-# --retro also builds Retro Rewind; see build.sh for RETRO_ROOT. Shares
-# generated/build_shards/ and build/mods/retro_rewind_full_cpp/ with build.sh
-# (ELF vs COFF assembly) - re-run whichever script you trust last.
+# --retro also builds Retro Rewind; see build.sh for RETRO_ROOT. The
+# format-specific translator outputs (shard graph + Retro Rewind mod) are
+# namespaced per target - see ASM_TARGET_TAG below - so this script and
+# build.sh no longer clobber each other's copies in a shared checkout.
 RETRO="${RETRO:-0}"
 RETRO_SKIP_WFC="${RETRO_SKIP_WFC:-0}"
 
@@ -122,7 +123,16 @@ if [ "$INTERACTIVE" = 1 ] || { [ "$#" -eq 0 ] && [ -t 0 ] && [ -t 1 ]; }; then
     run_interactive
 fi
 RETRO_ROOT="${RETRO_ROOT:-$(pwd)/PulsarPacks/completed/RetroRewind/RetroRewind6}"
-RETRO_OUT="build/mods/retro_rewind_full_cpp"
+
+# Translated assembly (.S) blobs use ELF section syntax here and COFF in
+# build.sh. Namespace the format-specific translator outputs by target so the
+# two scripts stop overwriting each other in one checkout. (Legacy unsuffixed
+# generated/build_shards/ and build/mods/retro_rewind_full_cpp/ from older runs
+# are now unused - safe to delete. generated/data_sections_init_blobs.S stays
+# shared; it is regenerated unconditionally on every build below.)
+ASM_TARGET_TAG=linux
+RETRO_OUT="build/mods/retro_rewind_full_cpp-$ASM_TARGET_TAG"
+SHARDS_DIR="generated/build_shards-$ASM_TARGET_TAG"
 
 PROJECT_MANIFEST="projects/mkwii/recomp.yml"
 TRANSLATOR_DLL="translator/src/Translator.Cli/bin/Release/net8.0/Translator.Cli.dll"
@@ -337,14 +347,14 @@ if [ "$RETRO" = "1" ]; then
 fi
 
 NEED_SHARDS=0
-if [ ! -f "generated/build_shards/shards.cmake" ]; then
+if [ ! -f "$SHARDS_DIR/shards.cmake" ]; then
     NEED_SHARDS=1
-elif [ "$RETRO" = "1" ] && ! grep -q "MKW_HAVE_RETRO_REWIND_SHARDS ON" generated/build_shards/shards.cmake; then
+elif [ "$RETRO" = "1" ] && ! grep -q "MKW_HAVE_RETRO_REWIND_SHARDS ON" "$SHARDS_DIR/shards.cmake"; then
     NEED_SHARDS=1
 fi
 
 if [ "$NEED_SHARDS" = "1" ]; then
-    shard_args=(emit-build-shards --project "$PROJECT_MANIFEST")
+    shard_args=(emit-build-shards --project "$PROJECT_MANIFEST" --out "$SHARDS_DIR")
     if [ "$RETRO" = "1" ]; then
         shard_args+=(--resolved-profile "$RETRO_OUT/resolved_dispatch_profile.json" --retro-cpp-dir "$RETRO_OUT/cpp")
     fi
@@ -355,6 +365,7 @@ cmake -S runtime -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER="$C_COMPILER" \
     -DCMAKE_CXX_COMPILER="$CXX_COMPILER" \
+    -DMKW_TRANSLATED_SHARD_MANIFEST="$(pwd)/$SHARDS_DIR/shards.cmake" \
     -DMKW_EXPERIMENTAL_LINUX_NATIVE=ON \
     -DMKW_UNCAPPED_FPS="$([ "$UNCAPPED_FPS" = 1 ] && echo ON || echo OFF)"
 

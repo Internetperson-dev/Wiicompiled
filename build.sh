@@ -25,7 +25,16 @@ for arg in "$@"; do
     esac
 done
 RETRO_ROOT="${RETRO_ROOT:-$(pwd)/PulsarPacks/completed/RetroRewind/RetroRewind6}"
-RETRO_OUT="build/mods/retro_rewind_full_cpp"
+
+# Translated assembly (.S) blobs use COFF section syntax here and ELF in
+# build-linux-native.sh. Namespace the format-specific translator outputs by
+# target so the two scripts stop overwriting each other in one checkout.
+# (Legacy unsuffixed generated/build_shards/ and build/mods/retro_rewind_full_cpp/
+# from older runs are now unused - safe to delete. generated/data_sections_init_blobs.S
+# stays shared; it is regenerated unconditionally on every build below.)
+ASM_TARGET_TAG=win
+RETRO_OUT="build/mods/retro_rewind_full_cpp-$ASM_TARGET_TAG"
+SHARDS_DIR="generated/build_shards-$ASM_TARGET_TAG"
 
 EXPECTED_DOL_SHA256="80d18895b39c63bd80f457398bfcbb91b7d16ac116a41a88967e954080155b05"
 EXPECTED_REL_SHA256="16d9d146112541fefea701ecb5bc1a496f9d50e4a752fbb5b6778e7c6399f67d"
@@ -272,14 +281,14 @@ if [ "$RETRO" = "1" ]; then
 fi
 
 NEED_SHARDS=0
-if [ ! -f "generated/build_shards/shards.cmake" ]; then
+if [ ! -f "$SHARDS_DIR/shards.cmake" ]; then
     NEED_SHARDS=1
-elif [ "$RETRO" = "1" ] && ! grep -q "MKW_HAVE_RETRO_REWIND_SHARDS ON" generated/build_shards/shards.cmake; then
+elif [ "$RETRO" = "1" ] && ! grep -q "MKW_HAVE_RETRO_REWIND_SHARDS ON" "$SHARDS_DIR/shards.cmake"; then
     NEED_SHARDS=1
 fi
 
 if [ "$NEED_SHARDS" = "1" ]; then
-    shard_args=(emit-build-shards --project "$PROJECT_MANIFEST")
+    shard_args=(emit-build-shards --project "$PROJECT_MANIFEST" --out "$SHARDS_DIR")
     if [ "$RETRO" = "1" ]; then
         shard_args+=(--resolved-profile "$RETRO_OUT/resolved_dispatch_profile.json" --retro-cpp-dir "$RETRO_OUT/cpp")
     fi
@@ -299,6 +308,7 @@ cmake -S runtime -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
     -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
     -DAURORA_DAWN_PROVIDER=package \
+    -DMKW_TRANSLATED_SHARD_MANIFEST="$(pwd)/$SHARDS_DIR/shards.cmake" \
     -DMKW_CPPWINRT_INCLUDE_DIR="$CPPWINRT_DIR"
 
 cmake --build "$BUILD_DIR"
