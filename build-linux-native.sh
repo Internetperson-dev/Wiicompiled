@@ -32,11 +32,6 @@ RETRO_SKIP_WFC="${RETRO_SKIP_WFC:-0}"
 INSTALL="${INSTALL:-0}"
 INSTALL_DIR="${INSTALL_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/WiiCompiled/Install}"
 
-# --uncapped-fps is a dev-build knob (-DMKW_UNCAPPED_FPS=ON): adds a 240 FPS
-# race frame-interpolation option and removes all frame pacing so interpolated
-# frames present as fast as they render. Experimental; expect tearing.
-UNCAPPED_FPS="${UNCAPPED_FPS:-0}"
-
 # -i / --interactive prompts for the options below instead of taking flags.
 # Also the default with no arguments on an interactive terminal.
 INTERACTIVE="${INTERACTIVE:-0}"
@@ -48,7 +43,6 @@ for arg in "$@"; do
         --appimage) APPIMAGE=1 ;;
         --install) INSTALL=1 ;;
         --install-dir=*) INSTALL=1; INSTALL_DIR="${arg#*=}" ;;
-        --uncapped-fps) UNCAPPED_FPS=1 ;;
         -i|--interactive) INTERACTIVE=1 ;;
     esac
 done
@@ -64,21 +58,13 @@ prompt_yes_no() {
 
 run_interactive() {
     echo "WiiCompiled native Linux build - interactive setup" >&2
-    echo "(pass flags to skip: --retro --install --package --appimage --uncapped-fps)" >&2
+    echo "(pass flags to skip: --retro --install --package --appimage)" >&2
     echo >&2
 
     if prompt_yes_no "Build Retro Rewind as well?" "$([ "$RETRO" = 1 ] && echo y || echo n)"; then
         RETRO=1
     else
         RETRO=0
-    fi
-    echo >&2
-
-    if prompt_yes_no "Uncapped FPS (dev: 240 interpolation option, no frame pacing)?" \
-        "$([ "$UNCAPPED_FPS" = 1 ] && echo y || echo n)"; then
-        UNCAPPED_FPS=1
-    else
-        UNCAPPED_FPS=0
     fi
     echo >&2
 
@@ -111,7 +97,6 @@ run_interactive() {
     [ "$PACKAGE" = 1 ] && summary="package ./dist/WiiCompiled-linux.zip"
     [ "$APPIMAGE" = 1 ] && summary="AppImage(s) in ./dist"
     [ "$RETRO" = 1 ] && summary="$summary + Retro Rewind"
-    [ "$UNCAPPED_FPS" = 1 ] && summary="$summary + uncapped FPS"
     echo "==> $summary" >&2
     prompt_yes_no "Proceed?" y || { echo "aborted." >&2; exit 0; }
     echo >&2
@@ -366,8 +351,7 @@ cmake -S runtime -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_C_COMPILER="$C_COMPILER" \
     -DCMAKE_CXX_COMPILER="$CXX_COMPILER" \
     -DMKW_TRANSLATED_SHARD_MANIFEST="$(pwd)/$SHARDS_DIR/shards.cmake" \
-    -DMKW_EXPERIMENTAL_LINUX_NATIVE=ON \
-    -DMKW_UNCAPPED_FPS="$([ "$UNCAPPED_FPS" = 1 ] && echo ON || echo OFF)"
+    -DMKW_EXPERIMENTAL_LINUX_NATIVE=ON
 
 cmake --build "$BUILD_DIR"
 

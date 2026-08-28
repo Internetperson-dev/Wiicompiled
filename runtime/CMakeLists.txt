@@ -21,17 +21,6 @@ endif()
 # aurora-main and its third-party tree stay unaffected.
 set(MKW_PROJECT_COMPILE_DEFINITIONS NOMINMAX)
 
-# Dev build: expose the 240 FPS race-interpolation target (Aurora already
-# supports it - MaxInterpolatedFrames == 3), drop the VI-retrace producer pacer
-# in vi.cpp, and drop Aurora's per-slot present wait so interpolated frames go
-# out as fast as they encode. Stock builds leave this OFF and are unchanged.
-option(MKW_UNCAPPED_FPS
-    "Dev build: 240 FPS interpolation + no frame pacing (uncapped presenter)" OFF)
-if(MKW_UNCAPPED_FPS)
-    list(APPEND MKW_PROJECT_COMPILE_DEFINITIONS MKW_UNCAPPED_FPS=1)
-    message(STATUS "MKW_UNCAPPED_FPS ON: frame pacing disabled, 240 FPS interpolation exposed")
-endif()
-
 set(CMAKE_CXX_STANDARD 17)
 
 # Declared before the vendored libraries so the third-party block below can
@@ -195,9 +184,6 @@ else()
             set_target_properties(${t} PROPERTIES UNITY_BUILD OFF)
             target_compile_options(${t} PRIVATE -O3 -ffast-math -w -pipe)
             target_include_directories(${t} PRIVATE ${MKW_DX_STUB_DIR})
-            if(MKW_UNCAPPED_FPS)
-                target_compile_definitions(${t} PRIVATE MKW_UNCAPPED_FPS=1)
-            endif()
             # Aurora's own sources include Windows headers and call std::min/max;
             # they relied on the old project-wide NOMINMAX that no longer leaks
             # into this subtree, so the define is applied per target here.

@@ -148,14 +148,9 @@ inline std::string EffectiveDisplayMode(std::string value) {
 }
 
 // 240 was offered by an early build and is no longer supported; a saved 240 is
-// migrated to 180 at the parse site. MKW_UNCAPPED_FPS dev builds re-enable it
-// (Aurora still supports 240 - it is the engine ceiling, 3 interpolated slots).
+// migrated to 180 at the parse site.
 inline bool IsSupportedFrameInterpolationFps(uint32_t value) {
-#ifdef MKW_UNCAPPED_FPS
-    return value == 0 || value == 120 || value == 180 || value == 240;
-#else
     return value == 0 || value == 120 || value == 180;
-#endif
 }
 
 inline std::optional<std::filesystem::path> ExecutableDirectory() {
@@ -400,11 +395,7 @@ inline RuntimeUserConfig ParseConfigDocument(const toml::value& document) {
         config.displayMode = EffectiveDisplayMode(*value);
     }
     if (auto value = FindConfigUint(document, "video", "frame_interpolation_fps")) {
-#ifdef MKW_UNCAPPED_FPS
-        const uint32_t migrated = *value;
-#else
         const uint32_t migrated = *value == 240u ? 180u : *value;
-#endif
         if (IsSupportedFrameInterpolationFps(migrated)) {
             config.frameInterpolationFps = migrated;
         }
