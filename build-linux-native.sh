@@ -655,6 +655,7 @@ EOF_APPRUN
 [Desktop Entry]
 Type=Application
 Name=$human_name
+GenericName=Mario Kart Wii PC Recompiled
 Comment=Statically recompiled Mario Kart Wii
 Exec=$binary
 Icon=wiicompiled
