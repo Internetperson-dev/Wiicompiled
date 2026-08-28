@@ -482,6 +482,7 @@ if [ "$INSTALL" = "1" ]; then
                 echo "[Desktop Entry]"
                 echo "Type=Application"
                 echo "Name=$2"
+                echo "GenericName=Mario Kart Wii PC Recompiled"
                 echo "Comment=Statically recompiled Mario Kart Wii"
                 echo "Exec=\"$3\""
                 [ -n "$icon_name" ] && echo "Icon=$icon_name"
