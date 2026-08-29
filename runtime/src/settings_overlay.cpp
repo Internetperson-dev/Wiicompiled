@@ -324,56 +324,29 @@ void DrawControllerSettings() {
     ImGui::Separator();
     controller_mapping_wizard::DrawSetupList();
     const uint32_t controllerCount = PADCount();
-    const uint32_t activePort = static_cast<uint32_t>(g_controllerPort);
-    const bool isKeyboard = PADIsKeyboardActive(activePort) != FALSE;
-    const char* currentName = PADGetName(activePort);
+    if (controllerCount == 0) {
+        ImGui::TextDisabled("No controller connected");
+        return;
+    }
+
+    const char* currentName = PADGetName(static_cast<uint32_t>(g_controllerPort));
     ImGui::Text("Assigned: %s", currentName != nullptr ? currentName : "None");
     if (ImGui::BeginMenu("Assign connected controller")) {
         for (uint32_t index = 0; index < controllerCount; ++index) {
             const char* name = PADGetNameForControllerIndex(index);
             ImGui::PushID(static_cast<int>(index));
             if (ImGui::MenuItem(name != nullptr ? name : "Unknown controller")) {
-                PADSetPortForIndex(index, activePort);
-                PADSetKeyboardActive(activePort, FALSE);
+                PADSetPortForIndex(index, static_cast<uint32_t>(g_controllerPort));
                 g_configuredControllerIndices.fill(std::numeric_limits<int32_t>::min());
                 ApplyConfiguredMappings();
             }
             ImGui::PopID();
         }
-        if (ImGui::MenuItem("Keyboard", nullptr, isKeyboard)) {
-            PADClearPort(activePort);
-            PADSetKeyboardActive(activePort, isKeyboard ? FALSE : TRUE);
-            if (activePort == 0) {
-                RuntimeConfigFile::SetKeyboardEnabled(!isKeyboard);
-            }
-        }
         ImGui::EndMenu();
     }
 
-    if (isKeyboard) {
-        ImGui::SeparatorText("Keyboard Controls (Active on this Port)");
-        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Custom keys file: Controller.txt");
-        ImGui::BulletText("Accelerate (A): W | Brake / Reverse (B): S");
-        ImGui::BulletText("Steering (Analog Stick): A (Left) / D (Right)");
-        ImGui::BulletText("Drift / Salto / Mini-Turbo (R): Space (or E)");
-        ImGui::BulletText("Use / Drag Item (L): Left Shift (or Q)");
-        ImGui::BulletText("Look Back (Z / X / Y): C");
-        ImGui::BulletText("Wheelie / Tricks (D-Pad): Arrow Up / Down / Left / Right (or R)");
-        ImGui::BulletText("Pause / Menu (Start): Enter (or Esc)");
-        ImGui::Spacing();
-        if (ImGui::Button("Reload Controller.txt")) {
-            PADClearKeyBindings(activePort);
-        }
-        return;
-    }
-
-    if (controllerCount == 0) {
-        ImGui::TextDisabled("No gamepad connected (Select 'Keyboard' under Assign menu to enable)");
-        return;
-    }
-
     uint32_t mappingCount = 0;
-    PADButtonMapping* mappings = PADGetButtonMappings(activePort, &mappingCount);
+    PADButtonMapping* mappings = PADGetButtonMappings(static_cast<uint32_t>(g_controllerPort), &mappingCount);
     if (mappings == nullptr || mappingCount != PAD_BUTTON_COUNT) {
         ImGui::TextDisabled("Assign a controller to edit its buttons");
         return;
@@ -381,7 +354,7 @@ void DrawControllerSettings() {
 
     uint32_t altMappingCount = 0;
     PADButtonMapping* altMappings =
-        PADGetAltButtonMappings(activePort, &altMappingCount);
+        PADGetAltButtonMappings(static_cast<uint32_t>(g_controllerPort), &altMappingCount);
 
     const auto writeBinding = [](size_t index, uint32_t primaryNative, uint32_t altNative) {
         std::string value = NativeButtonForValue(primaryNative).configName;
@@ -900,7 +873,6 @@ void InitializeRuntimeSettings() noexcept {
     aurora_set_skip_unready_pipelines(g_skipUnreadyPipelines);
     g_strapInputAccepted.store(false, std::memory_order_relaxed);
     g_startupDismissFrame.store(UINT64_MAX, std::memory_order_relaxed);
-    PADSetKeyboardActive(0, RuntimeConfigFile::KeyboardEnabled(true) ? TRUE : FALSE);
     PADBlockInput(g_topBarVisible);
 }
 

@@ -3,20 +3,10 @@
 #include <dolphin/pad.h>
 #include <dolphin/si.h>
 #include <SDL3/SDL_mouse.h>
-#include <SDL3/SDL_filesystem.h>
-#include <SDL3/SDL_scancode.h>
 
-#include <algorithm>
 #include <array>
-#include <cctype>
-#include <filesystem>
-#include <fstream>
-#include <ranges>
-#include <sstream>
-#include <string>
-#include <string_view>
 #include <sys/stat.h>
-#include <vector>
+#include <ranges>
 
 namespace {
 constexpr int32_t k_mappingsFileVersion = 3;
@@ -202,49 +192,21 @@ std::array<PADButtonMapping, PAD_BUTTON_COUNT> g_defaultButtonsJoyPair{{
 }};
 
 std::array<PADKeyButtonBinding, PAD_BUTTON_COUNT> g_defaultKeys{{
-    {SDL_SCANCODE_W, PAD_BUTTON_A},
-    {SDL_SCANCODE_S, PAD_BUTTON_B},
-    {SDL_SCANCODE_C, PAD_BUTTON_X},
-    {SDL_SCANCODE_C, PAD_BUTTON_Y},
-    {SDL_SCANCODE_RETURN, PAD_BUTTON_START},
-    {SDL_SCANCODE_C, PAD_TRIGGER_Z},
-    {SDL_SCANCODE_LSHIFT, PAD_TRIGGER_L},
-    {SDL_SCANCODE_SPACE, PAD_TRIGGER_R},
-    {SDL_SCANCODE_UP, PAD_BUTTON_UP},
-    {SDL_SCANCODE_DOWN, PAD_BUTTON_DOWN},
-    {SDL_SCANCODE_LEFT, PAD_BUTTON_LEFT},
-    {SDL_SCANCODE_RIGHT, PAD_BUTTON_RIGHT},
-}};
-
-std::array<PADKeyButtonBinding, PAD_BUTTON_COUNT> g_defaultAltKeys{{
     {PAD_KEY_INVALID, PAD_BUTTON_A},
     {PAD_KEY_INVALID, PAD_BUTTON_B},
     {PAD_KEY_INVALID, PAD_BUTTON_X},
     {PAD_KEY_INVALID, PAD_BUTTON_Y},
-    {SDL_SCANCODE_ESCAPE, PAD_BUTTON_START},
+    {PAD_KEY_INVALID, PAD_BUTTON_START},
     {PAD_KEY_INVALID, PAD_TRIGGER_Z},
-    {SDL_SCANCODE_Q, PAD_TRIGGER_L},
-    {SDL_SCANCODE_E, PAD_TRIGGER_R},
-    {SDL_SCANCODE_R, PAD_BUTTON_UP},
+    {PAD_KEY_INVALID, PAD_TRIGGER_L},
+    {PAD_KEY_INVALID, PAD_TRIGGER_R},
+    {PAD_KEY_INVALID, PAD_BUTTON_UP},
     {PAD_KEY_INVALID, PAD_BUTTON_DOWN},
     {PAD_KEY_INVALID, PAD_BUTTON_LEFT},
     {PAD_KEY_INVALID, PAD_BUTTON_RIGHT},
 }};
 
 std::array<PADKeyAxisBinding, PAD_AXIS_COUNT> g_defaultKeyAxis{{
-    {SDL_SCANCODE_D, PAD_AXIS_LEFT_X_POS, 0},
-    {SDL_SCANCODE_A, PAD_AXIS_LEFT_X_NEG, 0},
-    {SDL_SCANCODE_UP, PAD_AXIS_LEFT_Y_POS, 0},
-    {SDL_SCANCODE_DOWN, PAD_AXIS_LEFT_Y_NEG, 0},
-    {PAD_KEY_INVALID, PAD_AXIS_RIGHT_X_POS, 0},
-    {PAD_KEY_INVALID, PAD_AXIS_RIGHT_X_NEG, 0},
-    {PAD_KEY_INVALID, PAD_AXIS_RIGHT_Y_POS, 0},
-    {PAD_KEY_INVALID, PAD_AXIS_RIGHT_Y_NEG, 0},
-    {SDL_SCANCODE_LSHIFT, PAD_AXIS_TRIGGER_L, 0},
-    {SDL_SCANCODE_SPACE, PAD_AXIS_TRIGGER_R, 0},
-}};
-
-std::array<PADKeyAxisBinding, PAD_AXIS_COUNT> g_defaultAltKeyAxis{{
     {PAD_KEY_INVALID, PAD_AXIS_LEFT_X_POS, 0},
     {PAD_KEY_INVALID, PAD_AXIS_LEFT_X_NEG, 0},
     {PAD_KEY_INVALID, PAD_AXIS_LEFT_Y_POS, 0},
@@ -253,8 +215,8 @@ std::array<PADKeyAxisBinding, PAD_AXIS_COUNT> g_defaultAltKeyAxis{{
     {PAD_KEY_INVALID, PAD_AXIS_RIGHT_X_NEG, 0},
     {PAD_KEY_INVALID, PAD_AXIS_RIGHT_Y_POS, 0},
     {PAD_KEY_INVALID, PAD_AXIS_RIGHT_Y_NEG, 0},
-    {SDL_SCANCODE_Q, PAD_AXIS_TRIGGER_L, 0},
-    {SDL_SCANCODE_E, PAD_AXIS_TRIGGER_R, 0},
+    {PAD_KEY_INVALID, PAD_AXIS_TRIGGER_L, 0},
+    {PAD_KEY_INVALID, PAD_AXIS_TRIGGER_R, 0},
 }};
 
 std::array<PADAxisMapping, PAD_AXIS_COUNT> g_defaultAxes{{
@@ -280,9 +242,7 @@ constexpr const std::array<T, N>& toStdArray(const T (&array)[N]) {
 
 struct PADKeyboardState {
   std::array<PADKeyButtonBinding, PAD_BUTTON_COUNT> m_buttonMapping{};
-  std::array<PADKeyButtonBinding, PAD_BUTTON_COUNT> m_altButtonMapping{};
   std::array<PADKeyAxisBinding, PAD_AXIS_COUNT> m_axisMapping{};
-  std::array<PADKeyAxisBinding, PAD_AXIS_COUNT> m_altAxisMapping{};
   bool m_mappingsSet = false;
 };
 
@@ -337,334 +297,7 @@ bool is_mouse_button_pressed(const s32 scancode) {
   }
   float x, y;
   const auto buttons = SDL_GetMouseState(&x, &y);
-  return (buttons & (1u << (buttonNum - 1))) != 0u;
-}
-
-static std::string normalize_token(std::string_view sv) {
-  std::string result;
-  for (const char c : sv) {
-    if (std::isalnum(static_cast<unsigned char>(c))) {
-      result += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    }
-  }
-  return result;
-}
-
-static s32 parse_scancode_from_string(std::string_view str) {
-  const std::string norm = normalize_token(str);
-  if (norm.empty() || norm == "none" || norm == "unmapped" || norm == "invalid") {
-    return PAD_KEY_INVALID;
-  }
-  if (norm.size() == 1) {
-    const char c = norm[0];
-    if (c >= 'a' && c <= 'z') {
-      return static_cast<s32>(SDL_SCANCODE_A + (c - 'a'));
-    }
-    if (c >= '1' && c <= '9') {
-      return static_cast<s32>(SDL_SCANCODE_1 + (c - '1'));
-    }
-    if (c == '0') {
-      return static_cast<s32>(SDL_SCANCODE_0);
-    }
-  }
-  if (norm == "up" || norm == "arrowup" || norm == "flechaarriba" || norm == "arriba") return SDL_SCANCODE_UP;
-  if (norm == "down" || norm == "arrowdown" || norm == "flechaabajo" || norm == "abajo") return SDL_SCANCODE_DOWN;
-  if (norm == "left" || norm == "arrowleft" || norm == "flechaizquierda" || norm == "izquierda") return SDL_SCANCODE_LEFT;
-  if (norm == "right" || norm == "arrowright" || norm == "flechaderecha" || norm == "derecha") return SDL_SCANCODE_RIGHT;
-  if (norm == "space" || norm == "espacio" || norm == "spacebar" || norm == "barraespaciadora") return SDL_SCANCODE_SPACE;
-  if (norm == "shift" || norm == "lshift" || norm == "leftshift" || norm == "shiftizquierdo") return SDL_SCANCODE_LSHIFT;
-  if (norm == "rshift" || norm == "rightshift" || norm == "shiftderecho") return SDL_SCANCODE_RSHIFT;
-  if (norm == "ctrl" || norm == "lctrl" || norm == "leftctrl" || norm == "control" || norm == "controlizquierdo") return SDL_SCANCODE_LCTRL;
-  if (norm == "rctrl" || norm == "rightctrl" || norm == "controlderecho") return SDL_SCANCODE_RCTRL;
-  if (norm == "alt" || norm == "lalt" || norm == "leftalt" || norm == "altizquierdo") return SDL_SCANCODE_LALT;
-  if (norm == "ralt" || norm == "rightalt" || norm == "altgr" || norm == "altderecho") return SDL_SCANCODE_RALT;
-  if (norm == "enter" || norm == "return" || norm == "intro") return SDL_SCANCODE_RETURN;
-  if (norm == "esc" || norm == "escape") return SDL_SCANCODE_ESCAPE;
-  if (norm == "tab" || norm == "tabulador") return SDL_SCANCODE_TAB;
-  if (norm == "backspace" || norm == "borrar" || norm == "retroceso") return SDL_SCANCODE_BACKSPACE;
-  if (norm == "capslock" || norm == "bloqmayus") return SDL_SCANCODE_CAPSLOCK;
-  if (norm == "mouseleft" || norm == "clickizquierdo" || norm == "clickizq") return PAD_KEY_MOUSE_LEFT;
-  if (norm == "mouseright" || norm == "clickderecho" || norm == "clickder") return PAD_KEY_MOUSE_RIGHT;
-  if (norm == "mousemiddle" || norm == "clickmedio" || norm == "rueda") return PAD_KEY_MOUSE_MIDDLE;
-  if (norm == "mousex1") return PAD_KEY_MOUSE_X1;
-  if (norm == "mousex2") return PAD_KEY_MOUSE_X2;
-
-  for (int i = 1; i <= 12; ++i) {
-    if (norm == ("f" + std::to_string(i))) {
-      return static_cast<s32>(SDL_SCANCODE_F1 + (i - 1));
-    }
-  }
-
-  std::string rawStr{str};
-  const auto start = rawStr.find_first_not_of(" \t\r\n");
-  const auto end = rawStr.find_last_not_of(" \t\r\n");
-  if (start != std::string::npos && end != std::string::npos) {
-    rawStr = rawStr.substr(start, end - start + 1);
-    const SDL_Scancode code = SDL_GetScancodeFromName(rawStr.c_str());
-    if (code != SDL_SCANCODE_UNKNOWN) {
-      return static_cast<s32>(code);
-    }
-  }
-
-  return PAD_KEY_INVALID;
-}
-
-enum class InputAction {
-  Accelerate,
-  Brake,
-  SteerLeft,
-  SteerRight,
-  StickUp,
-  StickDown,
-  Drift,
-  Item,
-  LookBack,
-  Wheelie,
-  TrickDown,
-  TrickLeft,
-  TrickRight,
-  Pause,
-  Unknown
-};
-
-static InputAction parse_action_name(std::string_view sv) {
-  const std::string norm = normalize_token(sv);
-  if (norm == "accelerate" || norm == "acelerar" || norm == "a" || norm == "gas" || norm == "throttle") return InputAction::Accelerate;
-  if (norm == "brake" || norm == "frenar" || norm == "b" || norm == "reverse" || norm == "reversa" || norm == "freno") return InputAction::Brake;
-  if (norm == "steerleft" || norm == "girarizquierda" || norm == "leftstick" || norm == "stickleft") return InputAction::SteerLeft;
-  if (norm == "steerright" || norm == "girarderecha" || norm == "rightstick" || norm == "stickright") return InputAction::SteerRight;
-  if (norm == "stickup" || norm == "upstick" || norm == "menuup") return InputAction::StickUp;
-  if (norm == "stickdown" || norm == "downstick" || norm == "menudown") return InputAction::StickDown;
-  if (norm == "drift" || norm == "derrape" || norm == "salto" || norm == "hop" || norm == "miniturbo" || norm == "r" || norm == "triggerr") return InputAction::Drift;
-  if (norm == "item" || norm == "objeto" || norm == "l" || norm == "triggerl" || norm == "useitem") return InputAction::Item;
-  if (norm == "lookback" || norm == "miraratras" || norm == "rearview" || norm == "z" || norm == "x" || norm == "y") return InputAction::LookBack;
-  if (norm == "wheelie" || norm == "caballito" || norm == "arrowup" || norm == "up" || norm == "dpadup" || norm == "trickup") return InputAction::Wheelie;
-  if (norm == "trickdown" || norm == "arrowdown" || norm == "down" || norm == "dpaddown" || norm == "acrobaciaabajo") return InputAction::TrickDown;
-  if (norm == "trickleft" || norm == "arrowleft" || norm == "left" || norm == "dpadleft" || norm == "acrobaciaizquierda") return InputAction::TrickLeft;
-  if (norm == "trickright" || norm == "arrowright" || norm == "right" || norm == "dpadright" || norm == "acrobaciaderecha") return InputAction::TrickRight;
-  if (norm == "pause" || norm == "pausa" || norm == "start" || norm == "menu") return InputAction::Pause;
-  return InputAction::Unknown;
-}
-
-static void set_button_mapping_code(u32 port, PADButton btn, s32 primaryCode, s32 altCode) {
-  if (port >= PAD_MAX_CONTROLLERS) return;
-  for (auto& [scancode, padButton] : g_keyboardBindings[port].m_buttonMapping) {
-    if (padButton == btn) {
-      scancode = primaryCode;
-      break;
-    }
-  }
-  for (auto& [scancode, padButton] : g_keyboardBindings[port].m_altButtonMapping) {
-    if (padButton == btn) {
-      scancode = altCode;
-      break;
-    }
-  }
-}
-
-static void set_axis_mapping_code(u32 port, PADAxis axis, s32 primaryCode, s32 altCode) {
-  if (port >= PAD_MAX_CONTROLLERS) return;
-  for (auto& b : g_keyboardBindings[port].m_axisMapping) {
-    if (b.padAxis == axis) {
-      b.scancode = primaryCode;
-      break;
-    }
-  }
-  for (auto& b : g_keyboardBindings[port].m_altAxisMapping) {
-    if (b.padAxis == axis) {
-      b.scancode = altCode;
-      break;
-    }
-  }
-}
-
-static void apply_action_mapping(u32 port, InputAction action, s32 primaryCode, s32 altCode) {
-  switch (action) {
-  case InputAction::Accelerate:
-    set_button_mapping_code(port, PAD_BUTTON_A, primaryCode, altCode);
-    break;
-  case InputAction::Brake:
-    set_button_mapping_code(port, PAD_BUTTON_B, primaryCode, altCode);
-    break;
-  case InputAction::SteerLeft:
-    set_axis_mapping_code(port, PAD_AXIS_LEFT_X_NEG, primaryCode, altCode);
-    break;
-  case InputAction::SteerRight:
-    set_axis_mapping_code(port, PAD_AXIS_LEFT_X_POS, primaryCode, altCode);
-    break;
-  case InputAction::StickUp:
-    set_axis_mapping_code(port, PAD_AXIS_LEFT_Y_POS, primaryCode, altCode);
-    break;
-  case InputAction::StickDown:
-    set_axis_mapping_code(port, PAD_AXIS_LEFT_Y_NEG, primaryCode, altCode);
-    break;
-  case InputAction::Drift:
-    set_button_mapping_code(port, PAD_TRIGGER_R, primaryCode, altCode);
-    set_axis_mapping_code(port, PAD_AXIS_TRIGGER_R, primaryCode, altCode);
-    break;
-  case InputAction::Item:
-    set_button_mapping_code(port, PAD_TRIGGER_L, primaryCode, altCode);
-    set_axis_mapping_code(port, PAD_AXIS_TRIGGER_L, primaryCode, altCode);
-    break;
-  case InputAction::LookBack:
-    set_button_mapping_code(port, PAD_TRIGGER_Z, primaryCode, altCode);
-    set_button_mapping_code(port, PAD_BUTTON_X, primaryCode, altCode);
-    set_button_mapping_code(port, PAD_BUTTON_Y, primaryCode, altCode);
-    break;
-  case InputAction::Wheelie:
-    set_button_mapping_code(port, PAD_BUTTON_UP, primaryCode, altCode);
-    break;
-  case InputAction::TrickDown:
-    set_button_mapping_code(port, PAD_BUTTON_DOWN, primaryCode, altCode);
-    break;
-  case InputAction::TrickLeft:
-    set_button_mapping_code(port, PAD_BUTTON_LEFT, primaryCode, altCode);
-    break;
-  case InputAction::TrickRight:
-    set_button_mapping_code(port, PAD_BUTTON_RIGHT, primaryCode, altCode);
-    break;
-  case InputAction::Pause:
-    set_button_mapping_code(port, PAD_BUTTON_START, primaryCode, altCode);
-    break;
-  default:
-    break;
-  }
-}
-
-static std::vector<std::filesystem::path> get_controller_txt_candidates() {
-  std::vector<std::filesystem::path> candidates;
-  if (aurora::g_config.userPath != nullptr && aurora::g_config.userPath[0] != '\0') {
-    candidates.push_back(std::filesystem::path{aurora::g_config.userPath} / "Controller.txt");
-  }
-  const char* basePath = SDL_GetBasePath();
-  if (basePath != nullptr && basePath[0] != '\0') {
-    candidates.push_back(std::filesystem::path{basePath} / "Controller.txt");
-  }
-  candidates.push_back(std::filesystem::current_path() / "Controller.txt");
-  return candidates;
-}
-
-static void ensure_default_controller_txt(const std::filesystem::path& path) {
-  std::error_code ec;
-  if (std::filesystem::exists(path, ec)) {
-    return;
-  }
-  std::filesystem::create_directories(path.parent_path(), ec);
-  std::ofstream out(path);
-  if (!out.is_open()) {
-    return;
-  }
-  out << "# ====================================================================\n"
-         "# WiiCompiled - Keyboard Configuration (Controller.txt)\n"
-         "# Format: Action : Key  (or  Action : Key1, Key2)\n"
-         "# ====================================================================\n\n"
-         "# --- Basic Driving ---\n"
-         "Accelerate  : W\n"
-         "Brake       : S\n"
-         "SteerLeft   : A\n"
-         "SteerRight  : D\n\n"
-         "# --- Race Actions ---\n"
-         "Drift       : Space, E\n"
-         "Item        : LeftShift, Q\n"
-         "LookBack    : C\n\n"
-         "# --- Tricks & Wheelies (Bikes / Ramps) ---\n"
-         "Wheelie     : Up, R\n"
-         "TrickDown   : Down\n"
-         "TrickLeft   : Left\n"
-         "TrickRight  : Right\n\n"
-         "# --- Menus & Navigation ---\n"
-         "StickUp     : Up\n"
-         "StickDown   : Down\n"
-         "Pause       : Enter, Escape\n";
-}
-
-static std::filesystem::file_time_type g_lastControllerTxtModTime{};
-static std::filesystem::path g_activeControllerTxtPath{};
-
-static void load_controller_txt() {
-  const auto candidates = get_controller_txt_candidates();
-  std::filesystem::path foundPath;
-  for (const auto& path : candidates) {
-    std::error_code ec;
-    if (std::filesystem::exists(path, ec)) {
-      foundPath = path;
-      break;
-    }
-  }
-
-  if (foundPath.empty()) {
-    for (const auto& path : candidates) {
-      ensure_default_controller_txt(path);
-    }
-    return;
-  }
-
-  g_activeControllerTxtPath = foundPath;
-  std::error_code ec;
-  g_lastControllerTxtModTime = std::filesystem::last_write_time(foundPath, ec);
-
-  std::ifstream file(foundPath);
-  if (!file.is_open()) {
-    return;
-  }
-
-  g_keyboardBindings[0].m_buttonMapping = g_defaultKeys;
-  g_keyboardBindings[0].m_altButtonMapping = g_defaultAltKeys;
-  g_keyboardBindings[0].m_axisMapping = g_defaultKeyAxis;
-  g_keyboardBindings[0].m_altAxisMapping = g_defaultAltKeyAxis;
-  g_keyboardBindings[0].m_mappingsSet = true;
-
-  std::string line;
-  while (std::getline(file, line)) {
-    const auto commentPos = line.find('#');
-    if (commentPos != std::string::npos) {
-      line = line.substr(0, commentPos);
-    }
-    auto delimPos = line.find(':');
-    if (delimPos == std::string::npos) {
-      delimPos = line.find('=');
-    }
-    if (delimPos == std::string::npos) {
-      continue;
-    }
-
-    const std::string actionStr = line.substr(0, delimPos);
-    const std::string keyStr = line.substr(delimPos + 1);
-
-    const InputAction action = parse_action_name(actionStr);
-    if (action == InputAction::Unknown) {
-      continue;
-    }
-
-    std::string primaryKey, altKey;
-    const auto commaPos = keyStr.find(',');
-    if (commaPos != std::string::npos) {
-      primaryKey = keyStr.substr(0, commaPos);
-      altKey = keyStr.substr(commaPos + 1);
-    } else {
-      primaryKey = keyStr;
-    }
-
-    const s32 primaryCode = parse_scancode_from_string(primaryKey);
-    const s32 altCode = parse_scancode_from_string(altKey);
-
-    apply_action_mapping(0, action, primaryCode, altCode);
-  }
-}
-
-static void check_and_reload_controller_txt() {
-  if (g_activeControllerTxtPath.empty()) {
-    load_controller_txt();
-    return;
-  }
-  std::error_code ec;
-  if (!std::filesystem::exists(g_activeControllerTxtPath, ec)) {
-    return;
-  }
-  const auto curTime = std::filesystem::last_write_time(g_activeControllerTxtPath, ec);
-  if (!ec && curTime != g_lastControllerTxtModTime) {
-    load_controller_txt();
-  }
+  return (buttons & 1u << (buttonNum - 1)) != 0u;
 }
 } // namespace
 
@@ -680,15 +313,10 @@ BOOL PADInit() {
   }
   g_initialized = true;
 
-  for (uint32_t i = 0; i < PAD_MAX_CONTROLLERS; ++i) {
-    g_keyboardBindings[i].m_buttonMapping = g_defaultKeys;
-    g_keyboardBindings[i].m_altButtonMapping = g_defaultAltKeys;
-    g_keyboardBindings[i].m_axisMapping = g_defaultKeyAxis;
-    g_keyboardBindings[i].m_altAxisMapping = g_defaultAltKeyAxis;
-    g_keyboardBindings[i].m_mappingsSet = (i == 0);
-  }
-
-  load_controller_txt();
+  std::ranges::for_each(g_keyboardBindings, [](auto& state) {
+    state.m_buttonMapping = g_defaultKeys;
+    state.m_axisMapping = g_defaultKeyAxis;
+  });
 
   return true;
 }
@@ -1027,13 +655,6 @@ u32 PADRead(PADStatus* status) {
   if (!g_keyboardBindingsLoaded) {
     g_keyboardBindingsLoaded = true;
     load_keyboard_bindings();
-    load_controller_txt();
-  } else {
-    static uint32_t frameCounter = 0;
-    if (++frameCounter >= 60) {
-      frameCounter = 0;
-      check_and_reload_controller_txt();
-    }
   }
 
   int numKeys = 0;
@@ -1064,17 +685,8 @@ u32 PADRead(PADStatus* status) {
             }
           });
 
-      std::ranges::for_each(
-          g_keyboardBindings[i].m_altButtonMapping, [&kbState, &i, &status](const PADKeyButtonBinding& mapping) {
-            if (mapping.scancode > PAD_KEY_INVALID && kbState[mapping.scancode]) {
-              status[i].button |= mapping.padButton;
-            } else if (is_mouse_scancode(mapping.scancode) && is_mouse_button_pressed(mapping.scancode)) {
-              status[i].button |= mapping.padButton;
-            }
-          });
-
       int lx = 0, ly = 0, rx = 0, ry = 0, tl = 0, tr = 0;
-      auto applyAxis = [&](const PADKeyAxisBinding& binding) {
+      for (const auto& binding : g_keyboardBindings[i].m_axisMapping) {
         bool pressed = false;
         if (binding.scancode > PAD_KEY_INVALID) {
           pressed = binding.scancode < numKeys && kbState[binding.scancode];
@@ -1082,7 +694,7 @@ u32 PADRead(PADStatus* status) {
           pressed = is_mouse_button_pressed(binding.scancode);
         }
         if (!pressed) {
-          return;
+          continue;
         }
         switch (binding.padAxis) {
         case PAD_AXIS_LEFT_X_POS:
@@ -1118,15 +730,7 @@ u32 PADRead(PADStatus* status) {
         default:
           break;
         }
-      };
-
-      for (const auto& binding : g_keyboardBindings[i].m_axisMapping) {
-        applyAxis(binding);
       }
-      for (const auto& binding : g_keyboardBindings[i].m_altAxisMapping) {
-        applyAxis(binding);
-      }
-
       status[i].stickX = static_cast<s8>(std::clamp(static_cast<int>(status[i].stickX) + lx, -127, 127));
       status[i].stickY = static_cast<s8>(std::clamp(static_cast<int>(status[i].stickY) + ly, -127, 127));
       status[i].substickX = static_cast<s8>(std::clamp(static_cast<int>(status[i].substickX) + rx, -127, 127));
@@ -1458,9 +1062,6 @@ void PADGetVidPid(const u32 port, u32* vid, u32* pid) {
 const char* PADGetName(const u32 port) {
   const auto* controller = aurora::input::get_controller_for_player(port);
   if (controller == nullptr) {
-    if (port < PAD_MAX_CONTROLLERS && g_keyboardBindings[port].m_mappingsSet) {
-      return "Keyboard";
-    }
     return nullptr;
   }
 
@@ -1594,28 +1195,6 @@ PADKeyButtonBinding* PADGetKeyButtonBindings(const u32 port, u32* buttonCount) {
   return state.m_buttonMapping.data();
 }
 
-void PADSetAltKeyButtonBinding(const u32 port, const PADKeyButtonBinding binding) {
-  if (port >= PAD_MAX_CONTROLLERS) {
-    return;
-  }
-
-  for (auto& state = g_keyboardBindings[port]; auto& [scancode, padButton] : state.m_altButtonMapping) {
-    if (padButton == binding.padButton) {
-      scancode = binding.scancode;
-      return;
-    }
-  }
-}
-
-PADKeyButtonBinding* PADGetAltKeyButtonBindings(const u32 port, u32* buttonCount) {
-  if (port >= PAD_MAX_CONTROLLERS || !g_keyboardBindings[port].m_mappingsSet) {
-    return nullptr;
-  }
-  auto& state = g_keyboardBindings[port];
-  *buttonCount = PAD_BUTTON_COUNT;
-  return state.m_altButtonMapping.data();
-}
-
 BOOL PADSetKeyAxisBinding(const u32 port, const PADKeyAxisBinding binding) {
   if (port >= PAD_MAX_CONTROLLERS) {
     return FALSE;
@@ -1648,28 +1227,6 @@ PADKeyAxisBinding* PADGetKeyAxisBindings(const u32 port, u32* axisCount) {
   return state.m_axisMapping.data();
 }
 
-void PADSetAltKeyAxisBinding(const u32 port, const PADKeyAxisBinding binding) {
-  if (port >= PAD_MAX_CONTROLLERS) {
-    return;
-  }
-
-  for (auto& state = g_keyboardBindings[port]; auto& b : state.m_altAxisMapping) {
-    if (b.padAxis == binding.padAxis) {
-      b.scancode = binding.scancode;
-      return;
-    }
-  }
-}
-
-PADKeyAxisBinding* PADGetAltKeyAxisBindings(const u32 port, u32* axisCount) {
-  if (port >= PAD_MAX_CONTROLLERS || !g_keyboardBindings[port].m_mappingsSet) {
-    return nullptr;
-  }
-  auto& state = g_keyboardBindings[port];
-  *axisCount = PAD_AXIS_COUNT;
-  return state.m_altAxisMapping.data();
-}
-
 void PADSetKeyboardActive(const u32 port, const BOOL active) {
   if (port >= PAD_MAX_CONTROLLERS) {
     return;
@@ -1677,25 +1234,13 @@ void PADSetKeyboardActive(const u32 port, const BOOL active) {
   g_keyboardBindings[port].m_mappingsSet = active != FALSE;
 }
 
-BOOL PADIsKeyboardActive(const u32 port) {
-  if (port >= PAD_MAX_CONTROLLERS) {
-    return FALSE;
-  }
-  return g_keyboardBindings[port].m_mappingsSet ? TRUE : FALSE;
-}
-
 void PADClearKeyBindings(const u32 port) {
   if (port >= PAD_MAX_CONTROLLERS) {
     return;
   }
   g_keyboardBindings[port].m_buttonMapping = g_defaultKeys;
-  g_keyboardBindings[port].m_altButtonMapping = g_defaultAltKeys;
   g_keyboardBindings[port].m_axisMapping = g_defaultKeyAxis;
-  g_keyboardBindings[port].m_altAxisMapping = g_defaultAltKeyAxis;
-  g_keyboardBindings[port].m_mappingsSet = (port == 0);
-  if (port == 0) {
-    load_controller_txt();
-  }
+  g_keyboardBindings[port].m_mappingsSet = false;
 }
 
 constexpr uint32_t k_keyboardMagic = SBIG('KBND');
@@ -1729,42 +1274,42 @@ static void load_keyboard_bindings() {
   SDL_SeekIO(file, dataStart, SDL_IO_SEEK_SET);
 
   for (uint32_t port = 0; port < g_keyboardBindings.size(); ++port) {
-    auto& state = g_keyboardBindings[port];
-    SDL_ReadIO(file, &state.m_mappingsSet, sizeof(bool));
-    SDL_ReadIO(file, state.m_buttonMapping.data(), sizeof(PADKeyButtonBinding) * PAD_BUTTON_COUNT);
-    SDL_ReadIO(file, state.m_axisMapping.data(), sizeof(PADKeyAxisBinding) * PAD_AXIS_COUNT);
+    auto& [buttonMapping, axisMapping, mappingsSet] = g_keyboardBindings[port];
+    SDL_ReadIO(file, &mappingsSet, sizeof(bool));
+    SDL_ReadIO(file, buttonMapping.data(), sizeof(PADKeyButtonBinding) * PAD_BUTTON_COUNT);
+    SDL_ReadIO(file, axisMapping.data(), sizeof(PADKeyAxisBinding) * PAD_AXIS_COUNT);
 
     bool kbButtonCorrupt = false;
     for (uint32_t i = 0; i < PAD_BUTTON_COUNT; ++i) {
-      if (state.m_buttonMapping[i].padButton != g_defaultKeys[i].padButton) {
+      if (buttonMapping[i].padButton != g_defaultKeys[i].padButton) {
         kbButtonCorrupt = true;
         break;
       }
     }
     if (kbButtonCorrupt) {
       aurora::input::Log.warn("keyboard_bindings.dat port={}: corrupt button identifiers, resetting to defaults", port);
-      state.m_buttonMapping = g_defaultKeys;
+      buttonMapping = g_defaultKeys;
     }
 
     bool kbAxisCorrupt = false;
     for (uint32_t i = 0; i < PAD_AXIS_COUNT; ++i) {
-      if (state.m_axisMapping[i].padAxis != g_defaultKeyAxis[i].padAxis) {
+      if (axisMapping[i].padAxis != g_defaultKeyAxis[i].padAxis) {
         kbAxisCorrupt = true;
         break;
       }
     }
     if (kbAxisCorrupt) {
       aurora::input::Log.warn("keyboard_bindings.dat port={}: corrupt axis identifiers, resetting to defaults", port);
-      state.m_axisMapping = g_defaultKeyAxis;
+      axisMapping = g_defaultKeyAxis;
     }
 
-    if (state.m_mappingsSet) {
+    if (mappingsSet) {
       const bool anyBound =
-          std::ranges::any_of(state.m_buttonMapping,
+          std::ranges::any_of(buttonMapping,
                               [](const PADKeyButtonBinding& b) { return b.scancode != PAD_KEY_INVALID; }) ||
-          std::ranges::any_of(state.m_axisMapping, [](const PADKeyAxisBinding& b) { return b.scancode != PAD_KEY_INVALID; });
+          std::ranges::any_of(axisMapping, [](const PADKeyAxisBinding& b) { return b.scancode != PAD_KEY_INVALID; });
       if (!anyBound) {
-        state.m_mappingsSet = (port == 0);
+        mappingsSet = false;
       }
     }
   }
@@ -1785,10 +1330,10 @@ static void save_keyboard_bindings() {
   const int64_t dataStart = SDL_TellIO(file) + 31 & ~31;
   SDL_SeekIO(file, dataStart, SDL_IO_SEEK_SET);
 
-  for (const auto& state : g_keyboardBindings) {
-    SDL_WriteU8(file, state.m_mappingsSet);
-    SDL_WriteIO(file, state.m_buttonMapping.data(), sizeof(PADKeyButtonBinding) * PAD_BUTTON_COUNT);
-    SDL_WriteIO(file, state.m_axisMapping.data(), sizeof(PADKeyAxisBinding) * PAD_AXIS_COUNT);
+  for (const auto& [buttonMapping, axisMapping, mappingsSet] : g_keyboardBindings) {
+    SDL_WriteU8(file, mappingsSet);
+    SDL_WriteIO(file, buttonMapping.data(), sizeof(PADKeyButtonBinding) * PAD_BUTTON_COUNT);
+    SDL_WriteIO(file, axisMapping.data(), sizeof(PADKeyAxisBinding) * PAD_AXIS_COUNT);
   }
   SDL_CloseIO(file);
 }

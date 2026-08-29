@@ -64,7 +64,6 @@ struct RuntimeUserConfig {
     // comma-separated SDL-style physical button names ("south", or
     // "dpad_up,left_shoulder") as values; pressing either bound button counts.
     std::array<std::optional<std::string>, 12> controllerButtons;
-    std::optional<bool> keyboardEnabled;
 };
 
 namespace RuntimeConfigFile {
@@ -284,11 +283,6 @@ inline void EnsureConfigFile() {
               "# guest can observe it. Set to false to mix inline on the guest\n"
               "# thread exactly as the runtime did before.\n"
               "mix_worker = true\n\n"
-              "[keyboard]\n"
-              "# Enables keyboard input on port 1. Default keys:\n"
-              "# Accelerate=W, Brake/Reverse=S, Steer=A/D, Drift=Space (or E), Item=Left Shift (or Q)\n"
-              "# Look Back=C, Wheelie/Tricks=Up/Down/Left/Right (or R), Pause=Enter (or Esc)\n"
-              "enabled = true\n\n"
               "[network]\n"
               "enabled = true\n\n"
               "[paths]\n"
@@ -367,7 +361,6 @@ inline RuntimeUserConfig ParseConfigDocument(const toml::value& document) {
         config.controllerButtons[index] =
             FindConfigValue<std::string>(document, "controller", buttonKeys[index]);
     }
-    config.keyboardEnabled = FindConfigValue<bool>(document, "keyboard", "enabled");
 
     config.widescreen = FindConfigValue<bool>(document, "video", "widescreen");
     config.windowPosX = FindConfigInt(document, "video", "window_x");
@@ -685,15 +678,6 @@ inline bool SetAudioMixWorker(bool value) {
 inline bool SetAttenuateMusicWhenMediaPlays(bool value) {
     Mutable().attenuateMusicWhenMediaPlays = value;
     return WriteSetting("audio", "attenuate_music_when_media_plays", value ? "true" : "false");
-}
-
-inline bool SetKeyboardEnabled(bool value) {
-    Mutable().keyboardEnabled = value;
-    return WriteSetting("keyboard", "enabled", value ? "true" : "false");
-}
-
-inline bool KeyboardEnabled(bool fallback = true) {
-    return Get().keyboardEnabled.value_or(fallback);
 }
 
 inline bool WidescreenEnabled(bool fallback = false) {
