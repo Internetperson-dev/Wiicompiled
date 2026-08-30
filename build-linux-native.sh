@@ -1,6 +1,101 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+## Patch 1 - Install dotnet8 if not instaleld
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DOTNET_DIR="$SCRIPT_DIR/dotnet8"
+
+if [ ! -f "$DOTNET_DIR/dotnet" ]; then
+    echo "Local .NET 8 SDK not found. Installing into $DOTNET_DIR..."
+    mkdir -p "$DOTNET_DIR"
+
+    # Detect architecture of CPU
+    ARCH="$(uname -m)"
+    case "$ARCH" in
+        x86_64)          DOTNET_ARCH="x64" ;;
+        aarch64|arm64)   DOTNET_ARCH="arm64" ;;
+        armv7l|armv8l)   DOTNET_ARCH="arm" ;;
+        *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
+    esac
+
+    # Check for Alpine Linux, which uses musl libc
+    IS_MUSL=false
+    if [ -f /etc/os-release ] && grep -qi "alpine" /etc/os-release; then
+        IS_MUSL=true
+    elif ldd --version 2>&1 | grep -qi "musl"; then
+        IS_MUSL=true
+    fi
+
+    # Match Architecture to download URL and compare to SHA-512 hash
+    VERSION="8.0.424"
+    BASE_URL="https://builds.dotnet.microsoft.com/dotnet/Sdk/${VERSION}"
+
+    if [ "$IS_MUSL" = true ]; then
+        case "$DOTNET_ARCH" in
+            x64)
+                URL="${BASE_URL}/dotnet-sdk-${VERSION}-linux-musl-x64.tar.gz"
+                # x64 Alpine is the main user of musl
+                EXPECTED_SHA="d361d763ef87dc89f4eb27bfb301eb521ddf59aa2dd826d97c7cf5959da4fb4ea53c6145398bdc5ee4da3dceaa327ecbf785e054ee5867f6770bbd26e4f32a53"
+                ;;
+            arm64)
+                URL="${BASE_URL}/dotnet-sdk-${VERSION}-linux-musl-arm64.tar.gz"
+                EXPECTED_SHA="cbe81a7e3843c5fdab106e86d2c893d4cc0e27e23ea64ab3d23d6c26505f13f89dbebd7ba34efffd0fa5f4b91495acff1e016172d1ad03d1813ce46f79ed4dd8"
+                ;;
+            arm)
+                URL="${BASE_URL}/dotnet-sdk-${VERSION}-linux-musl-arm.tar.gz"
+                EXPECTED_SHA="0d5a3ec0ca1c142ec5e4244cecc48b8c9d4b4ddcdb4585ffbc39b972e3a1fefc32dca9cbe665efb9ba914ea6a9ebfbbfcf5a3cb5bd640d898495a435ae7efd9f"
+                ;;
+        esac
+    else
+        case "$DOTNET_ARCH" in
+            x64)
+                URL="${BASE_URL}/dotnet-sdk-${VERSION}-linux-x64.tar.gz"
+                EXPECTED_SHA="6503fd9f464d5e3a4f43a881d2b74afc6a2c46ceda74d027f1565b7239f4b3ec884857c03c0dcd49eb52f384d5ae1fa5aaf135f0a6aabc5518103aceed643c74"
+                ;;
+            arm64)
+                URL="${BASE_URL}/dotnet-sdk-${VERSION}-linux-arm64.tar.gz"
+                EXPECTED_SHA="bb19b6779ad93d146055583d644ef269bb42501f6c7fdef51e14026cde9d5fd726d370de098a8d8504867fb24bfcb5ab88cc22bec812461aede334de1aacf7b6"
+                ;;
+            arm)
+                URL="${BASE_URL}/dotnet-sdk-${VERSION}-linux-arm.tar.gz"
+                EXPECTED_SHA="d0d6ef382b6c7a42b0369882672721867c2d1b6ecbe4fffa47d4c1cf6ca72a8c5eb351b89668d2bcf3db6834bfa95f3ce010a33481231f4a9b40049f50cb90eb"
+                ;;
+        esac
+    fi
+
+    TMP_TAR="$DOTNET_DIR/dotnet-sdk.tar.gz"
+
+    echo "Downloading .NET 8 SDK from: $URL"
+    # Retry in case of failure
+    curl -L --retry 3 -o "$TMP_TAR" "$URL"
+
+    # Verify using SHA512 Hash
+    echo "Verifying SHA-512 checksum..."
+    ACTUAL_SHA=$(sha512sum "$TMP_TAR" | awk '{print $1}')
+
+    if [ "$EXPECTED_SHA" != "$ACTUAL_SHA" ]; then
+        echo "ERROR: Checksum mismatch!"
+        echo "Expected: $EXPECTED_SHA"
+        echo "Actual:   $ACTUAL_SHA"
+        rm -f "$TMP_TAR"
+        exit 1
+    fi
+
+    echo "Hash verified successfully. Extracting SDK..."
+    tar -xzf "$TMP_TAR" -C "$DOTNET_DIR"
+    rm -f "$TMP_TAR"
+
+    echo ".NET 8 installed successfully."
+fi
+
+# Set dotnet to path for build script.
+export DOTNET_ROOT="$DOTNET_DIR"
+export PATH="$DOTNET_DIR:$PATH"
+
+## End of Patch
+
+
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 # EXPERIMENTAL native Linux ELF build (Clang/GCC, no llvm-mingw/Wine). Needs
