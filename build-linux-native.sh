@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-## Patch 1 - Install dotnet8 if not instaleld
+# Install dotnet 8 if not present
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOTNET_DIR="$SCRIPT_DIR/dotnet8"
@@ -89,12 +89,9 @@ if [ ! -f "$DOTNET_DIR/dotnet" ]; then
     echo ".NET 8 installed successfully."
 fi
 
-# Set dotnet to path for build script.
+# Add dotnet to path for build script.
 export DOTNET_ROOT="$DOTNET_DIR"
 export PATH="$DOTNET_DIR:$PATH"
-
-## End of Patch
-
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
